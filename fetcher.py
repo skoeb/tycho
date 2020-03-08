@@ -1,3 +1,11 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Mar  7 08:48:27 2020
+
+@author: SamKoebrich
+"""
+
 
 import ee
 import folium
@@ -11,6 +19,7 @@ import time
 import json
 import itertools
 
+import swifter
 import pandas as pd
 import numpy as np
 import geopandas as gpd
@@ -30,10 +39,13 @@ except Exception as e:
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 class PUDLLoader():
-    def __init__(self, years=2018,
+    def __init__(self, years=[2018],
                  round_coords_at=3,
                  ts_frequency='D'):
         
+        print('\n')
+        print('Initializing PUDLLoader')
+
         assert ts_frequency in ['D','H']
         
         self.years = years
@@ -93,28 +105,30 @@ class PUDLLoader():
 
         # --- only take input year ---
         self.eightsixty = self.eightsixty.loc[self.eightsixty['report_year'].isin(self.years)]
-        print(f'........filtering to report years: len {len(self.eightsixty)}')
+        print(f"........filtering to report years: len {len(self.eightsixty)}")
 
         # --- take out possible retirements within next two years ---
         self.eightsixty['planned_retirement_year'].fillna(2099, inplace=True) #fill in nans for plants with no planned retirement
         self.eightsixty = self.eightsixty.loc[self.eightsixty['planned_retirement_year'] > self.eightsixty['report_year'] + 2]
-        print(f'........filtering out retirements in next year: len {len(self.eightsixty)}')
+        print(f"........filtering out retirements in next year: len {len(self.eightsixty)}")
 
         # --- only take operational assets ---
         self.eightsixty = self.eightsixty.loc[self.eightsixty['operational_status'] == 'existing']
-        print(f'........filtering out non-operational assets: len {len(self.eightsixty)}')
+        print(f"........filtering out non-operational assets: len {len(self.eightsixty)}")
 
         # --- only take fossil generators ---
         self.eightsixty = self.eightsixty.loc[self.eightsixty['fuel_type_code_pudl'].isin(['coal','gas','oil'])]
-        print(f'........filtering out non-fossil generators: len {len(self.eightsixty)}')
-                
+        print(f"........filtering out non-fossil generators: len {len(self.eightsixty)}")
+        
         # --- filter out columns ---
         self.eightsixty = self.eightsixty[keep]
         
         # --- groupby to reduce multiple generators at one plant ---
         self.eightsixty = self.eightsixty.groupby(['plant_id_eia','report_year'], as_index=False).agg(agg_dict)
-        print(f'........reducing generators to plant level: len {len(self.eightsixty)}')
+        print(f"........reducing generators to plant level: len {len(self.eightsixty)}")
 
+        # --- make small ---
+        self.eightsixty = helper.memory_downcaster(self.eightsixty)
         return self
     
     def _clean_plants(self):
@@ -135,6 +149,9 @@ class PUDLLoader():
         
         # --- Filter out unnecessary columns ---
         self.plants = self.plants[keep]
+
+        # --- Only plants in EIA 860 ---
+        self.plants = self.plants.loc[self.plants['plant_id_eia'].isin(list(set(self.eightsixty['plant_id_eia'])))]
         
         return self
     
@@ -147,11 +164,9 @@ class PUDLLoader():
     
     def _merge_dbs(self):
         print('....merging dbs')
-        
         # --- Merge plant data with generator data ---
         self.eightsixty = self.eightsixty.merge(self.plants, on='plant_id_eia', how='inner')
-        print(f'........merging eightsixty with plants on plant_id_eia: len {len(self.eightsixty)}')
-        
+        print(f"........merging eightsixty with plants on plant_id_eia: len {len(self.eightsixty)}")
         return self
     
     
@@ -178,8 +193,6 @@ class PUDLLoader():
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~~ LOAD EPA CEMS DATA ~~~~~~~~~~~~
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-
 class EPACEMSScraper():
     """
     The EPA requires certain thremal generators within the U.S. to report
@@ -207,6 +220,9 @@ class EPACEMSScraper():
                  download_path=os.path.join('data','CEMS','csvs'),
                  years=[2019]):
         
+        print('\n')
+        print('Initializing EPACEMSScraper')
+
         self.server=server
         self.server_dir = server_dir
         self.download_path = download_path
@@ -229,7 +245,7 @@ class EPACEMSScraper():
         """Check what is already downloaded and skip it."""
         downloaded = os.listdir(self.download_path)
         needed = [f for f in files if f not in downloaded]
-        print(f'....{len(needed)} files needed, {len(downloaded) - len(needed)} files already downloaded')
+        print(f"....{len(needed)} files needed, {len(downloaded) - len(needed)} files already downloaded")
         return needed
         
     
@@ -245,22 +261,21 @@ class EPACEMSScraper():
         
         # --- Loop through years ---
         for y in self.years:
-            print(f'....working on {y}')
+            print(f"....working on {y}")
             jobs = self._cwd_annual(y)
-            jobs = self._already_downloaded(jobs)
+            jobs = self._already_downloaded(jobs) # see what is already downloaded and update jobs
         
             # --- Download monthly/state files ---
             jobs_complete = 0 
-            to_do = len(jobs)
-            ten_percent = int(to_do*0.1)
+            ten_percent = max(1, int(len(jobs) * 0.1))
             
             for job in jobs: #FTP limits connections, so multiprocessing doesn't work
                 self._worker(job)
                 jobs_complete += 1
                     
                 if jobs_complete % ten_percent == 0:
-                    print('........finished EPA CEMS download {} / {}'.format(jobs_complete, to_do))
-        print(f'....finished all downloads')
+                    print('........finished EPA CEMS download {} / {}'.format(jobs_complete, len(jobs)))
+        print(f"....finished all downloads")
         return self
 
 
@@ -285,7 +300,9 @@ class CEMSLoader():
     def __init__(self, ts_frequency='D', years=[2019], clean_on_load=True,
                  use_pickle=True):
         
+        print('\n')
         print('Initializing CEMSLoader')
+
         self.ts_frequency = ts_frequency
         self.years = years
         self.dir_path = os.path.join('data','CEMS','csvs')
@@ -295,7 +312,7 @@ class CEMSLoader():
         self.use_pickle = use_pickle
         years_clean = [str(i) for i in years]
         years_clean = '-'.join(years_clean) #save as seperate caches
-        self.pkl_path = os.path.join('data','CEMS','processed',f'cems_{ts_frequency}_{years_clean}.pkl')
+        self.pkl_path = os.path.join('data','CEMS','processed',f"cems_{ts_frequency}_{years_clean}.pkl")
         
         self.cems = None
 
@@ -311,7 +328,7 @@ class CEMSLoader():
             year_files += [i for i in files if str(y) in i]
         
         to_concat = []
-        ten_percent = int(len(files)*0.1)
+        ten_percent = max(1, int(len(files)*0.1))
         done = 0
         for f in files:
             _df = pd.read_csv(os.path.join(self.dir_path, f))
@@ -321,7 +338,7 @@ class CEMSLoader():
             to_concat.append(_df)
             done +=1
             if done % ten_percent == 0:
-                print(f'........finished loading {done}/{len(files)} csvs')
+                print(f"........finished loading {done}/{len(files)} csvs")
             
         # --- Convert to dataframe ---
         print('....concatenating CEMS csvs')
@@ -395,12 +412,12 @@ class CEMSLoader():
     
     def _post_load_clean(self):
         
-        print(f'........postprocessing CEMS, len: {len(self.cems)}')
+        print(f"........postprocessing CEMS, len: {len(self.cems)}")
         
         # --- drop plants without a full year of data ---
         plant_id_eias_keep = list(set(self.cems.groupby('plant_id_eia', as_index=False)['plant_id_eia'].filter(lambda x: x.count() == 365)))
         self.cems = self.cems.loc[self.cems['plant_id_eia'].isin(plant_id_eias_keep)]
-        print(f'........droping generators without a full year of data, len: {len(self.cems)}')
+        print(f"........droping generators without a full year of data, len: {len(self.cems)}")
         
         # --- reset index ---
         self.cems.reset_index(drop=True, inplace=True)
@@ -432,12 +449,15 @@ class CEMSLoader():
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 class GPPDLoader():
     
-    def __init__(self, ts_frequency='D', match_distance_thresh=0.01,
+    def __init__(self, ts_frequency='D', 
                  round_coords_at=3, countries=['United States of America']):
+
+        print('\n')
+        print('Initializing GPPDLoader')
+
         self.pdir = os.path.join(os.getcwd())#, os.pardir)
         self.ts_frequency = ts_frequency
         
-        self.match_distance_thresh = match_distance_thresh
         self.round_coords_at = round_coords_at #.01 degrees = 1 km
         self.countries = countries
 
@@ -476,7 +496,7 @@ class GPPDLoader():
         self.gppd[['latitude','longitude']] = self.gppd[['latitude','longitude']].round(self.round_coords_at)
         
         # --- Filter country ---
-        print(f'........filtering gppd to include {self.countries}')
+        print(f"........filtering gppd to include {self.countries}")
         if 'all' not in self.countries: #include all countries
             for country in self.countries:
                 assert country in set(self.gppd['country_long'])
@@ -495,7 +515,7 @@ class GPPDLoader():
     
     
     def load(self):
-        print(f'....Loading gppd from csv')
+        print(f"....Loading gppd from csv")
         # --- Read csv ---
         self._load_csv()
         
@@ -511,35 +531,49 @@ class GPPDLoader():
 # ~~~~~~~~~~~ MERGE DATA TOGETHER ~~~~~~~~~~~~
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     
-class MergeTrainingData():
+class TrainingDataMerger():
     """
     Merge all possible cached data for training, including:
         - EIA 860/923 data returned from PUDLLoader()
         - WRI Global Powerplant Database Data returned from GPPDLoader()
         - EPA Continuous Emission Monitoring System Target Data 
     """
-    def __init__(eightsixty, gppd, cems):
+    def __init__(self, eightsixty, gppd, cems,
+                 match_distance_thresh=0.01):
+
+        print('\n')
+        print('Initializing TrainingDataMerger')
+
         self.eightsixty = eightsixty
         self.gppd = gppd
         self.cems = cems
+
+        self.match_distance_thresh = match_distance_thresh
         
         
-    def _make_db_points(self, db):
-        self.db_points = list(set(db.geometry.unary_union))
+    def _make_db_points(self):
+        # --- Drop duplicates (as strings for performance) ---
+        _db = self.db.copy()
+        _db['wkt'] = self.db['geometry'].apply(lambda x: x.wkt).values
+        self.unique = _db.drop_duplicates(subset=['wkt'])
+
+        # --- Calc unions of points ---
+        self.db_points = self.unique.unary_union
+
         return self
 
     
-    def _nearest_point(self, gppd_point):
+    def _nearest_point_worker(self, gppd_point):
         # add thresh for max distance
-        _, match = nearest_points(gppd_point, self.eightsixty_points)
+        _, match = nearest_points(gppd_point, self.db_points)
         dist = gppd_point.distance(match)
         
         if dist < self.match_distance_thresh:
-            matched_plant_id = self.eightsixty.loc[self.eightsixty['geometry'] == match, 'plant_id_eia'].values[0]
-            return matched_plant_id
+            matched_plant_id = self.unique.loc[self.unique['geometry'] == match, 'plant_id_eia'].values[0]
+            return (gppd_point, matched_plant_id)
         
         else:
-            return np.nan
+            return (gppd_point, np.nan)
 
     
     def _duplicate_for_dates(self, df, dt_range):
@@ -549,7 +583,6 @@ class MergeTrainingData():
             # --- Subset report year df ---
             y = pd.Timestamp(d).year
             _df = df.copy()
-            
             _df['date'] = d
             to_concat.append(_df)
 
@@ -558,43 +591,101 @@ class MergeTrainingData():
     
     
     def merge(self):
-        
+
         # --- Merge cems and eightsixty on eia plant id ---
-        print(f'....beginning merge process between cems and eightsixty')
-        print(f'........pre-merge generator count in eightsixty: {len(set(self.eightsixty['plant_id_eia']))}')
-        print(f'........pre-merge generator count in cems: {len(set(self.cems['plant_id_eia']))}')
-        db = self.cems.merge(self.eightsixty, on=['plant_id_eia'], how='left')
-        print(f'........post-merge generator count: {len(set(db['plant_id_eia']))}')
-              
-        import pdb; pdb.set_trace() #ensure geodataframe
+        print("....beginning merge process between cems and eightsixty")
+        print(f"........pre-merge generator count in eightsixty: {len(set(self.eightsixty['plant_id_eia']))}")
+        print(f"........pre-merge generator count in cems: {len(set(self.cems['plant_id_eia']))}")
+        self.db = self.eightsixty.merge(self.cems, on=['plant_id_eia'], how='right')
+        print(f"........post-merge generator count: {len(set(self.db['plant_id_eia']))}")
         
-        # --- Create list of known points in db ---
+        # --- Drop CEMS data not in eightsixty ---
+        print(f"........pre-drop generator count: {len(set(self.db['plant_id_eia']))}")
+        self.db = self.db.dropna(subset=['plant_name_eia'])
+        print(f"........post-drop generator count: {len(set(self.db['plant_id_eia']))}")
+
+        # --- Create list of known points in self.db ---
         print('....making db points list.')
         self._make_db_points()
         
         # --- Find nearest db plant for plants in gppd ---
         print('....finding nearest neighboring plants between gppd and db.')
-        self.gppd['plant_id_eia'] = self.gppd['geometry'].apply(self._nearest_point)
+
+        jobs = list(self.gppd['geometry'].unique())
+        if config.MULTIPROCESSING:
+            results_list = []
+            with cf.ThreadPoolExecutor(max_workers=config.WORKERS) as executor:
+                ten_percent = max(1, int(len(jobs) * 0.1))
+
+                # --- Submit to worker ---
+                futures = [executor.submit(self._nearest_point_worker, job) for job in jobs]
+                for f in cf.as_completed(futures):
+                    results_list.append(f.result())
+                    if len(results_list) % ten_percent == 0:
+                        print('....finished point matching job {} / {}'.format(len(results_list), len(jobs)))
+        else:
+            results_list = [self._nearest_point_worker(job) for job in jobs]
         
-        # --- Drop geometry from gppd to avoid duplicate columns ---
-        self.gppd.drop(['latitude','longitude','geometry'], axis='columns', inplace=True)
-        
+        results_dict = {k.wkt :v for k,v in results_list}
+        self.gppd['wkt'] = self.gppd['geometry'].apply(lambda x: x.wkt).values
+        self.gppd['plant_id_eia'] = self.gppd['wkt'].map(results_dict)
+
         # --- Filter out plants that no match was found ---
-        print(f'........pre-drop generator count in gppd: {len(self.gppd)}')
+        print(f"........pre-drop generator count in gppd: {len(self.gppd)}")
         self.gppd = self.gppd.dropna(subset=['plant_id_eia'])
-        print(f'........post-drop generator count in gppd: {len(self.gppd)}')
-        
+        print(f"........post-drop generator count in gppd: {len(self.gppd)}")
+
+        # --- Drop geometry from gppd to avoid duplicate columns ---
+        keep_cols = [
+            'wri_capacity_mw',
+            'primary_fuel',
+            'commissioning_year',
+            'generation_gwh_2013',
+            'generation_gwh_2014',
+            'generation_gwh_2015',
+            'generation_gwh_2016',
+            'generation_gwh_2017',
+            'estimated_generation_gwh',
+            'plant_id_eia'
+        ]
+
+        # --- Drop unneeded cols ---
+        self.gppd = self.gppd[keep_cols]
+
+        # --- gppd groupby plant_id_eia to aggregate generators that were matched together ---
+        agg_dict = { 
+            'wri_capacity_mw':'sum',
+            'primary_fuel':'first',
+            'commissioning_year':'mean',
+            'generation_gwh_2013':'sum',
+            'generation_gwh_2014':'sum',
+            'generation_gwh_2015':'sum',
+            'generation_gwh_2016':'sum',
+            'generation_gwh_2017':'sum',
+            'estimated_generation_gwh':'sum',
+        }
+        self.gppd = self.gppd.sort_values('wri_capacity_mw', ascending=False)
+        self.gppd = self.gppd.groupby('plant_id_eia', as_index=False).agg(agg_dict)
+
+        #TODO: consider just dropping these rather than the groupby above
+        # # --- Filter out plants that duplicate eightsixty was found ---
+        # print(f"........pre-drop generator count in db: {len(set(self.db['plant_id_eia']))}")
+        # self.gppd = self.gppd.drop_duplicates(subset=['plant_id_eia'], keep='first')
+        # print(f"........post-drop generator count in db: {len(set(self.db['plant_id_eia']))}")
+
         # --- Merge on plant_id_eia ---
-        print(f'........pre-merge generator count in db: {len(set(db['plant_id_eia']))}')
-        db = db.merge(self.gppd, on='plant_id_eia', how='inner')
-        print(f'........post-merge generator count in db: {len(set(db['plant_id_eia']))}')
+        print(f"........pre-merge generator count in db: {len(set(self.db['plant_id_eia']))}")
+        self.db = self.db.merge(self.gppd, on='plant_id_eia', how='inner')
+        print(f"........post-merge generator count in db: {len(set(self.db['plant_id_eia']))}")
         
-        # --- Filter out plants that duplicate eightsixty was found ---
-        print(f'........pre-drop generator count in db: {len(set(db['plant_id_eia']))}')
-        self.gppd = self.gppd.drop_duplicates(subset=['plant_id_eia'], keep='first')
-        print(f'........post-drop generator count in db: {len(set(db['plant_id_eia']))}')
-        
-        self.db = db
+        # --- Drop plants where difference between WRI capacity and EIA capacity is greater than 40% of WRI capacity ---
+        print(f"........pre-drop generator count in db: {len(set(self.db['plant_id_eia']))}")
+        self.db['diff'] = self.db['wri_capacity_mw'] - self.db['capacity_mw']
+        self.db['diff'] = self.db['diff'].abs()
+        self.db['thresh'] = self.db['wri_capacity_mw'] * 0.40
+        self.db = self.db[self.db['diff'] <= self.db['thresh']]
+        self.db = self.db.drop(['diff','thresh'], axis='columns')
+        print(f"........post-merge generator count in db: {len(set(self.db['plant_id_eia']))}")
         return self
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -625,7 +716,6 @@ class GetDailyEarthEngineData():
     
     """
     
-    
     def __init__(self, db='COPERNICUS/S5P/OFFL/L3_NO2',
                  agg_func='median',
                  scale=10, buffers=[1e3, 5e3],
@@ -634,6 +724,9 @@ class GetDailyEarthEngineData():
                  date_col='date',
                  pandas_out=True,
                  read_cache=True, to_cache=True):
+
+        print('\n')
+        print('Initializing GetDailyEarthEngineData')
 
         self.db = db
         self.agg_func = agg_func
@@ -662,7 +755,7 @@ class GetDailyEarthEngineData():
         if self.agg_func == 'median':
             image = date_agg.median()
         else:
-            raise NotImplementedError(f'please write a wrapper for {self.agg_func}!')
+            raise NotImplementedError(f"please write a wrapper for {self.agg_func}!")
 
         return image
 
@@ -728,20 +821,18 @@ class GetDailyEarthEngineData():
         if config.MULTIPROCESSING:
             results = []
             with cf.ThreadPoolExecutor(max_workers=config.WORKERS) as executor:
-                jobs_complete = 0
-                to_do = len(jobs_df)
+                ten_percent = max(1, int(len(jobs_df) * 0.1))
 
                 # --- Chunk jobs ---
                 chunks = self._chunkify(jobs_df, config.WORKERS)
                 for chunk in chunks:
                     
                     # --- Submit to worker ---
-                    futures = [executor.submit(self._worker, row) for _, row in jobs_df.iterrows()]
+                    futures = [executor.submit(self._worker, row) for _, row in chunk.iterrows()]
                     for f in cf.as_completed(futures):
                         results.append(f.result())
-                        tasks_complete += 1
-                        if tasks_complete % config.WORKERS == 0:
-                            log.info('Finished Earth Engine Job {} / {}'.format(jobs_complete, to_do))
+                        if len(results) % config.WORKERS == 0:
+                            print('Finished Earth Engine Job {} / {}'.format(len(results), len(jobs)))
         else:
             results = [self._worker(row) for _, row in jobs_df.iterrows()]
             
@@ -810,36 +901,37 @@ class GetDailyEarthEngineData():
     
 def main():
 
-	# --- Load EIA 860/923 data from PUDL ---
-	pudlloader = PUDLLoader()
-	pudlloader.load()
-	eightsixty = pudlloader.eightsixty
-	eightsixty = eightsixty
+    # --- Load EIA 860/923 data from PUDL ---
+    pudlloader = PUDLLoader()
+    pudlloader.load()
+    eightsixty = pudlloader.eightsixty
+    eightsixty = eightsixty
 
-	# --- scrape EPA CEMS data if not present in 'data/CEMS/csvs' (as zip files) ---
-	scraper = EPACEMSScraper()
-	scraper.fetch()
+    # --- scrape EPA CEMS data if not present in 'data/CEMS/csvs' (as zip files) ---
+    # scraper = EPACEMSScraper()
+    # scraper.fetch()
 
-	# --- load CEMS data from pickle, or construct dataframe from csvs ---
-	CEMS = CEMSLoader()
-	CEMS.fetch()
-	cems = CEMS.cems
-	cems
+    # --- load CEMS data from pickle, or construct dataframe from csvs ---
+    CEMS = CEMSLoader()
+    CEMS.fetch()
+    cems = CEMS.cems
+    cems
 
-	# --- Load WRI Global Power Plant Database data from csv ---
-	GPPD = GPPDLoader() 
-	GPPD.load()
-	gppd = GPPD.gppd
-	gppd
+    # --- Load WRI Global Power Plant Database data from csv ---
+    GPPD = GPPDLoader() 
+    GPPD.load()
+    gppd = GPPD.gppd
+    gppd
 
-	# --- Merge eightsixty, gppd, cems together into a long_df ---
-	MERGER = MergeTrainingData(eightsixty, gppd, cems)
-	MERGER.merge()
-	db = MERGER.db
+    # --- Merge eightsixty, gppd, cems together into a long_df ---
+    MERGER = TrainingDataMerger(eightsixty, gppd, cems)
+    MERGER.merge()
+    db = MERGER.db
 
-	# --- Load Google Earth Engine Data using db for dates ---
-	eeloader = GetDailyEarthEngineData()
-	nox = eeloader.fetch(db)
+    import pdb; pdb.set_trace()
+    # --- Load Google Earth Engine Data using db for dates ---
+    eeloader = GetDailyEarthEngineData()
+    nox = eeloader.fetch(db)
 
 if __name__ == '__main__':
-	main()
+    main()

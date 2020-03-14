@@ -8,13 +8,18 @@ Created on Sat Mar  7 08:48:27 2020
 import os
 import logging
 
+# --- External Libraries ---
+import pandas as pd
+
 # --- Module Imports ---
 from tycho.config import *
 import tycho.helper
 from tycho.fetcher import EPACEMSFetcher, EarthEngineFetcher
-from tycho.loader import PUDLLoader, CEMSLoader, GPPDLoader, EarthEngineLoader
-from tycho.merger import TrainingDataMerger
+from tycho.loader import PUDLLoader, CEMSLoader, GPPDLoader
+from tycho.merger import TrainingDataMerger, RemoteDataMerger
 from tycho.splitter import FourWaySplit
+from tycho.sanitizer import ColumnSanitizer, OneHotEncodeWithThresh, DropNullColumns
+from tycho.featureengineer import CapacityFeatures
 
 
 # --- Initialize Logging ---
@@ -22,6 +27,11 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s",
     handlers=[
-        logging.FileHandler(os.path.join("logs","sklearn_spoilage_log.txt")),
+        logging.FileHandler(os.path.join("logs","tycho.txt")),
         logging.StreamHandler()
     ])
+
+log = logging.getLogger("tycho")
+
+# --- Hide Pandas Warning ---
+pd.options.mode.chained_assignment = None

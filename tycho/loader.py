@@ -13,7 +13,6 @@ import json
 import itertools
 import random
 import pickle
-import logging
 
 # --- External Libraries ---
 import pandas as pd
@@ -26,7 +25,8 @@ import ee
 import tycho.config as config
 import tycho.helper as helper
 
-log = logging.getLogger("loader")
+import logging
+log = logging.getLogger("tycho")
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~ LOAD EPA CEMS DATA ~~~~~~~~~~~~~
@@ -271,8 +271,7 @@ class GPPDLoader():
     def _clean_gppd(self):
         
         keep = [
-            'country_long',
-            'name', 
+            'country',
             'wri_capacity_mw',
             'latitude',
             'longitude',
@@ -284,6 +283,7 @@ class GPPDLoader():
             'generation_gwh_2016',
             'generation_gwh_2017',
             'estimated_generation_gwh',
+            'plant_id_wri'
         ]
 
         # --- Round lat lon ---
@@ -300,10 +300,16 @@ class GPPDLoader():
         self.gppd = self.gppd.loc[self.gppd['primary_fuel'].isin(['Coal','Oil','Gas','Petcoke','Cogeneration'])]
         
         # --- Rename columns ---
-        self.gppd.rename({'capacity_mw':'wri_capacity_mw'}, axis='columns', inplace=True)
+        self.gppd.rename({ 
+                            'capacity_mw':'wri_capacity_mw',
+                            'gppd_idnr':'plant_id_wri',
+                        }, axis='columns', inplace=True)
         
         # --- filter columns we want ---
         self.gppd = self.gppd[keep]
+
+        # --- drop rows without a WRI id ---
+        self.gppd = self.gppd.dropna(subset=['plant_id_wri'])
         
         return self
     
@@ -320,95 +326,6 @@ class GPPDLoader():
         self._make_geopandas()
         
         return self
-
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# ~~~~~~~~~~~ STITCH EARTH ENGINE ~~~~~~~~~~~~
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-class EarthEngineLoader():
-    """
-    Convert pickled monthly long_dfs containing earth engine data as 'value' and 'variable'
-    columns into a wide_df, grouped by datetime_utc and plant_id_eia, 
-    with multiple columns per buffer. 
-
-    Inputs
-    ------
-    earthengine_dbs (list) - the list of earthengine databases to fetch (i.e. "COPERNICUS/S5P/OFFL/L3_NO2").
-    buffers (list) - list of buffer sizes (in meters) to load. Each pickle has multiple buffers stored within it. 
-    ts_frequency (str) - the desired pandas frequency of resampling, hardcoded into pickle names. 
-
-    Methods
-    -------
-    merge() - perform pickle loading, merging, cleaning, and pivoting
-
-    Attributes
-    -------
-    self.clean_files (list) - the list of files that have been loaded. Each formatted like:
-        <EARTHENGINE_DB>&agg<TS_FREQUENCY>&<MONTH>.pkl
-    self.merged (DataFrame) - merged and cleaned long_df
-    self.pivot (DataFrame) - merged, pivoted into a wide_df
-
-    Assumptions
-    -----------
-    - all of the requested buffers and earthengine_dbs have already been run thourh EarthEngineFetcher()
-    - plant_id_eia is not purposefully duplicated
-    """
-    def __init__(self, earthengine_dbs, buffers, ts_frequency='D'):
-        self.earthengine_dbs = earthengine_dbs
-        self.buffers = buffers
-        self.ts_frequency = ts_frequency
-
-        self.pickle_path = os.path.join('data','earthengine')
-    
-    def _read_pickles(self, files):
-        files = os.listdir(self.pickle_path)  
-        self.clean_files = []
-        # --- find out which files to read in --
-        for f in files:
-            if '&' in f:
-                db, ts, m = f.split('&')
-                if (db in self.earthengine_dbs) & (ts == self.ts_frequency):
-                    self.clean_files.append(f) 
-        import pdb; pdb.set_trace()
-
-        # --- read files and concat ---
-        dfs = []
-        for f in self.clea_files:
-            dfs.append(pd.read_pickle(os.path.join(self.pickle_path, f)))
-        
-        # --- concat dfs into long earthengine df ---
-        self.earthengine = pd.concat(dfs, axis='rows', sort=False)
-
-        return self
-
-    def _pivot_buffers(self):
-        """Pivot multiple buffers into a wider df."""
-        self.earthengine['buffer_variable'] = self.earthengine['buffer'].astype(int).astype(str) + "/" + self.earthengine['variable']
-        self.pivot = self.earthengine.pivot_table(index=['plant_id_eia','datetime_utc'], columns='buffer_variable',values='value')
-        self.pivot.reset_index(drop=False, inplace=True)
-        return self
-
-    def _merge_pivot(self, df):
-        """Merge pivot onto df (continaing generators and CEMS if training)."""
-        self.merged = df.merge(self.pivot, on=['plant_id_eia', 'datetime_utc'])
-        return self
-
-    def _clean(self):
-
-        # --- Drop any duplicates ---
-        self.merged = self.merged.drop_duplicates(subset=['plant_id_eia','datetime_utc'])
-
-        # --- Drop any nans ---
-        self.merged = self.merged.dropna(subset=['plant_id_eia','datetime_utc'])
-
-        return self
-    
-    def merge(self, df):
-        self._read_pickles()
-        self._pivot_buffers()
-        self._merge_pivot(df)
-        self._clean()
-        return self.merged
 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

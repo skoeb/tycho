@@ -13,7 +13,6 @@ import json
 import itertools
 import random
 import pickle
-import logging
 
 # --- External Libraries ---
 import pandas as pd
@@ -26,7 +25,8 @@ import ee
 import tycho.config as config
 import tycho.helper as helper
 
-log = logging.getLogger("splitter")
+import logging
+log = logging.getLogger("tycho")
 
 class FourWaySplit():
     """
@@ -54,12 +54,11 @@ class FourWaySplit():
     - that the input dataframe is geographically balanced
     """
 
-    def __init__(self, y_columns, testfrac=0.2, seed=42):
+    def __init__(self, testfrac=0.2, seed=42):
         log.info('\n')
         log.info('Initializing TrainTestSplit')
 
-        self.y_columns = y_columns
-        self.testfrac = testfracv
+        self.testfrac = testfrac
         self.seed = seed
     
     def _train_test_split(self, df):
@@ -67,28 +66,38 @@ class FourWaySplit():
         # --- shuffle ---
         _df = df.sample(frac=1, random_state=self.seed)
 
+        # --- reset index ---
+        _df.reset_index(inplace=True, drop=False)
+
         # --- split generator list ---
-        gens = list(set(_df['plant_id_eia']))
+        gens = list(set(_df['plant_id_wri']))
         train_len = int((1-self.testfrac) * len(gens))
         train_gens = gens[0:train_len]
         test_gens = gens[train_len:]
         
         # --- split data frame ---
-        self.train = _df.loc[_df['plant_id_eia'].isin(train_gens)].reset_index(drop=True)
-        self.test = _df.loc[_df['plant_id_eia'].isin(test_gens)].reset_index(drop=True)
+        train = _df.loc[_df['plant_id_wri'].isin(train_gens)]
+        test = _df.loc[_df['plant_id_wri'].isin(test_gens)]
+
+        # --- set index ---
+        train = train.set_index(['plant_id_wri', 'datetime_utc'])
+        test = test.set_index(['plant_id_wri', 'datetime_utc'])
+
+        self.train = train
+        self.test = test
         return self
 
-    def _X_y_split(self):
+    def _X_y_split(self, y_columns=config.CEMS_Y_COLS):
         all_columns = self.train.columns
-        self.X_columns = [c for c in all_columns if c not in self.y_columns]
+        self.X_columns = [c for c in all_columns if c not in y_columns]
 
         self.X_train = self.train[self.X_columns]
         self.X_test = self.test[self.X_columns]
-        self.y_train = self.train[self.y_columns]
-        self.y_test = self.test[self.y_columns]
+        self.y_train = self.train[y_columns]
+        self.y_test = self.test[y_columns]
         return self
     
     def split(self, df):
         self._train_test_split(df)
         self._X_y_split()
-        return self.X_train, self.X_test, self. y_train, self.y_test
+        return self.X_train, self.X_test, self.y_train, self.y_test

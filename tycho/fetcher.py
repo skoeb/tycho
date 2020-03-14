@@ -13,7 +13,6 @@ import json
 import itertools
 import random
 import pickle
-import logging
 
 # --- External Libraries ---
 import pandas as pd
@@ -26,7 +25,9 @@ import ee
 import tycho.config as config
 import tycho.helper as helper
 
-log = logging.getLogger("fetcher")
+import logging
+logging.getLogger("googleapiclient").setLevel(logging.ERROR)
+log = logging.getLogger("tycho")
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~ FETCH EPA CEMS DATA ~~~~~~~~~~~~
@@ -165,19 +166,13 @@ class EarthEngineFetcher():
                  agg_func='median',
                  scale=50, tilescale=16,
                  buffers=[1e2, 1e3, 1e4, 1e5],
-                 id_col='plant_id_eia',
+                 id_col='plant_id_wri',
                  geo_col='geometry',
                  date_col='datetime_utc',
                  read_cache=True, use_cache=True):
 
         log.info('\n')
         log.info('Initializing GetDailyEarthEngineData')
-
-        try:
-            ee.Initialize()
-        except Exception as e:
-            ee.Authenticate()
-            ee.Initialize()
 
         self.earthengine_db = earthengine_db
         self.agg_func = agg_func
@@ -201,7 +196,12 @@ class EarthEngineFetcher():
 
         # --- Load Image and add as layer ---
         imagecollection = ee.ImageCollection(self.earthengine_db)
-        date_agg = imagecollection.filterDate(start_date, next_date)
+
+        # --- Select date or population count ---
+        if self.earthengine_db == "CIESIN/GPWv411/GPW_Population_Count":
+            date_agg = imagecollection.select('population_count')
+        else:
+            date_agg = imagecollection.filterDate(start_date, next_date)
 
         if self.agg_func == 'median':
             image = date_agg.median()
@@ -248,6 +248,8 @@ class EarthEngineFetcher():
     def _worker(self, row):
         """Returns a dict with keys as buffer size, and values of dicts of band values."""
         try:
+            # with helper.timeout(config.EE_TIMEOUT): #wrapped in a timeout as I can't figure out how to modify ee's exponential backoff
+            ee.Initialize()
             geometry = self._load_geometry(row[self.geo_col], row['buffer'])
             date_agg = self._load_image(row[self.date_col])
             
@@ -259,8 +261,17 @@ class EarthEngineFetcher():
             result['buffer'] = row['buffer']
 
         except Exception as e:
-            log.info(f"WARNING! Failed on {row['datetime_utc']}, {e} \n")
-            return {}
+            if config.VERBOSE:
+                log.info(f"WARNING! Failed on {row['datetime_utc']}")
+
+            result = {
+                self.id_col:row[self.id_col],
+                self.geo_col:row[self.geo_col],
+                self.date_col:row[self.date_col],
+                'buffer':row['buffer']
+            }
+
+            return result
 
         return result
         
@@ -270,7 +281,7 @@ class EarthEngineFetcher():
         results = []
         if config.MULTIPROCESSING:
             ten_percent = max(1, int(len(jobs_df) * 0.1))
-            with cf.ThreadPoolExecutor(max_workers=config.WORKERS) as executor:
+            with cf.ProcessPoolExecutor(max_workers=config.THREADS) as executor: #TODO: Not sure why thread pool is dumping core here? 
                 # --- Submit to worker ---
                 futures = [executor.submit(self._worker, row) for _, row in jobs_df.iterrows()]
                 for f in cf.as_completed(futures):
@@ -292,7 +303,7 @@ class EarthEngineFetcher():
         results = pd.melt(results, id_vars)
 
         # --- Drop duplicates ---
-        results = results.drop_duplicates(subset=['plant_id_eia','datetime_utc','buffer','variable'])
+        results = results.drop_duplicates(subset=[self.id_col, self.date_col,'buffer','variable'])
 
         # --- Drop nans ---
         results = results.dropna(subset=['variable','value'], how='any')
@@ -340,16 +351,19 @@ class EarthEngineFetcher():
                 else:
                     log.info(f'....no cache found for month {m}')
                     cache = pd.DataFrame({
-                        'plant_id_eia':[],
-                        'datetime_utc':[],
+                        self.id_col:[],
+                        self.date_col:[],
                         'buffer':[],
                         'variable':[],
                         'value':[]
                     })
 
                 # --- drop nans from cache ---
-                keys = ['plant_id_eia','datetime_utc','buffer']
-                cache = cache.dropna(subset=keys+['variable','value'], how='any')
+                keys = ['plant_id_wri','datetime_utc','buffer']
+                
+                # --- Some nans are unavoidable, retrying can take time ---
+                if config.RETRY_EE_NANS:
+                    cache = cache.dropna(subset=keys+['variable','value'], how='any')
                 
                 # --- figure out what we already have and what we need ---
                 cache.set_index(keys, inplace=True, drop=True)
@@ -364,8 +378,17 @@ class EarthEngineFetcher():
                 cache.reset_index(inplace=True, drop=False)
                 
                 # --- get what we need ---
-                results = self._run_jobs(needed, m)
-                results = self._clean_results(results)
+                if len(needed) > 0:
+                    results = self._run_jobs(needed, m)
+                    results = self._clean_results(results)
+                else:
+                    results = pd.DataFrame({
+                        self.id_col:[],
+                        self.date_col:[],
+                        'buffer':[],
+                        'variable':[],
+                        'value':[]
+                    })
 
                 # --- concat everything together and save ---
                 out = pd.concat([downloaded, results], axis='rows', sort=False)

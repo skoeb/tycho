@@ -103,7 +103,7 @@ class EPACEMSFetcher():
         """Check what is already downloaded and skip it."""
         downloaded = os.listdir(self.download_path)
         needed = [f for f in files if f not in downloaded]
-        log.info(f"....{len(needed)} files needed, {len(downloaded) - len(needed)} files already downloaded")
+        log.info(f"....{len(needed)} files needed, {len(downloaded)} files already downloaded")
         return needed
         
     
@@ -163,16 +163,17 @@ class EarthEngineFetcher():
     """
     
     def __init__(self, earthengine_db='COPERNICUS/S5P/OFFL/L3_NO2',
-                 agg_func='median',
+                 agg_func='mean',
                  scale=50, tilescale=16,
                  buffers=[1e2, 1e3, 1e4, 1e5],
                  id_col='plant_id_wri',
                  geo_col='geometry',
                  date_col='datetime_utc',
+                 ts_frequency=config.TS_FREQUENCY,
                  read_cache=True, use_cache=True):
 
         log.info('\n')
-        log.info('Initializing GetDailyEarthEngineData')
+        log.info('Initializing EarthEngineFetcher')
 
         self.earthengine_db = earthengine_db
         self.agg_func = agg_func
@@ -181,6 +182,7 @@ class EarthEngineFetcher():
         self.buffers=buffers
         self.read_cache = read_cache
         self.use_cache = use_cache
+        self.ts_frequency = ts_frequency
         
         self.id_col=id_col
         self.geo_col=geo_col
@@ -192,8 +194,15 @@ class EarthEngineFetcher():
 
         # --- Make dates strings so google is happy ---
         start_date = date #.strftime('%m-%d-%Y')
-        next_date = (pd.Timestamp(date) + pd.tseries.offsets.DateOffset(days=1)) #.strftime('%m-%d-%Y') #TODO: implement frequency keyword here 
 
+        if self.ts_frequency == 'D':
+            next_date = (pd.Timestamp(date) + pd.tseries.offsets.DateOffset(days=1)) #.strftime('%m-%d-%Y') #TODO: implement frequency keyword here 
+        elif self.ts_frequency == 'W-SUN':
+            next_date = (pd.Timestamp(date) + pd.tseries.offsets.DateOffset(weeks=1)) #.strftime('%m-%d-%Y') #TODO: implement frequency keyword here 
+        elif self.ts_frequency in ['A','AS']:
+            next_date = (pd.Timestamp(date) + pd.tseries.offsets.DateOffset(years=1)) #.strftime('%m-%d-%Y') #TODO: implement frequency keyword here 
+        elif self.ts_frequency in ['MS']:
+            next_date = (pd.Timestamp(date) + pd.tseries.offsets.DateOffset(months=1)) #.strftime('%m-%d-%Y') #TODO: implement frequency keyword here 
         # --- Load Image and add as layer ---
         imagecollection = ee.ImageCollection(self.earthengine_db)
 
@@ -205,6 +214,8 @@ class EarthEngineFetcher():
 
         if self.agg_func == 'median':
             image = date_agg.median()
+        elif self.agg_func == 'mean':
+            image = date_agg.mean()
         else:
             raise NotImplementedError(f"please write a wrapper for {self.agg_func}!")
         return image
@@ -214,7 +225,7 @@ class EarthEngineFetcher():
         """Return geometry point object."""
         lon = geometry.x
         lat = geometry.y
-        geometry = ee.Geometry.Point(lon, lat).buffer(buffer)
+        geometry = ee.Geometry.Point(lon=lon, lat=lat).buffer(buffer)
         return geometry
 
     
@@ -239,7 +250,7 @@ class EarthEngineFetcher():
           'geometry':geometry,
           'scale': self.scale,
           'bestEffort':True,
-          'tileScale':self.tilescale
+        #   'tileScale':self.tilescale
         })
         average_dict = average_dict.getInfo()
         return average_dict
@@ -248,17 +259,17 @@ class EarthEngineFetcher():
     def _worker(self, row):
         """Returns a dict with keys as buffer size, and values of dicts of band values."""
         try:
-            # with helper.timeout(config.EE_TIMEOUT): #wrapped in a timeout as I can't figure out how to modify ee's exponential backoff
-            ee.Initialize()
-            geometry = self._load_geometry(row[self.geo_col], row['buffer'])
-            date_agg = self._load_image(row[self.date_col])
-            
-            # --- Download results and add identifier features ---
-            result = self._calc_geography_mean(date_agg, geometry, row['buffer'])
-            result[self.id_col] = row[self.id_col]
-            result[self.geo_col] = row[self.geo_col]
-            result[self.date_col] = row[self.date_col]
-            result['buffer'] = row['buffer']
+            with helper.timeout(config.EE_TIMEOUT): #wrapped in a timeout as I can't figure out how to modify ee's exponential backoff
+                ee.Initialize()
+                geometry = self._load_geometry(row[self.geo_col], row['buffer'])
+                date_agg = self._load_image(row[self.date_col])
+
+                # --- Download results and add identifier features ---
+                result = self._calc_geography_mean(date_agg, geometry, row['buffer'])
+                result[self.id_col] = row[self.id_col]
+                result[self.geo_col] = row[self.geo_col]
+                result[self.date_col] = row[self.date_col]
+                result['buffer'] = row['buffer']
 
         except Exception as e:
             if config.VERBOSE:
@@ -272,6 +283,9 @@ class EarthEngineFetcher():
             }
 
             return result
+        
+        # --- Sleep to avoid upsetting google ---
+        time.sleep(0.5)
 
         return result
         
@@ -302,12 +316,6 @@ class EarthEngineFetcher():
         id_vars = [self.id_col, self.date_col, self.geo_col, 'buffer']
         results = pd.melt(results, id_vars)
 
-        # --- Drop duplicates ---
-        results = results.drop_duplicates(subset=[self.id_col, self.date_col,'buffer','variable'])
-
-        # --- Drop nans ---
-        results = results.dropna(subset=['variable','value'], how='any')
-
         # --- Make small ---
         results = helper.memory_downcaster(results)
 
@@ -318,7 +326,8 @@ class EarthEngineFetcher():
         """Top-level function."""
 
         # --- Construct output path ---
-        infered_freq = pd.infer_freq(pd.to_datetime(pd.Series(list(set(df[self.date_col])))).sort_values())
+        infered_freq = config.TS_FREQUENCY
+        # infered_freq = pd.infer_freq(pd.to_datetime(pd.Series(list(set(df[self.date_col])))).sort_values())
         db_clean = self.earthengine_db.replace('/','-')
         buffers_clean = '-'.join([str(i) for i in self.buffers])
         self.cache_dir = os.path.join('data', 'earthengine')
@@ -329,7 +338,7 @@ class EarthEngineFetcher():
         sorted(months)
         
         for m in months:
-            cache_month_path =  os.path.join(self.cache_dir, f"{db_clean}&agg{infered_freq}&{m}.pkl")
+            cache_month_path =  os.path.join(self.cache_dir, f"{db_clean}#agg{infered_freq}#{m}.pkl")
             
             # --- See what is requested for the given month ---
             month_df = df.loc[df['month'] == m]
@@ -370,7 +379,8 @@ class EarthEngineFetcher():
                 requested.set_index(keys, inplace=True, drop=True)
                 downloaded = cache.loc[cache.index.isin(requested.index)]
                 needed = requested.loc[~requested.index.isin(cache.index)]
-                log.info(f'........{len(downloaded)} queries loaded from cache')
+                n_features_per_query = max(1, len(set(downloaded['variable'])))
+                log.info(f'........{int(len(downloaded) / n_features_per_query)} queries loaded from cache')
                 log.info(f'........{len(needed)} queries still needed')
 
                 downloaded.reset_index(inplace=True, drop=False)
@@ -396,11 +406,14 @@ class EarthEngineFetcher():
 
                 # --- rewrite new cache ---
                 cache = pd.concat([out, cache], axis='rows', sort=False)
-                cache = cache.drop_duplicates(subset=keys, keep='first')
+                cache = cache.sort_values('value')
+                cache = cache.drop_duplicates(subset=keys + ['variable'], keep='first')
                 
                 # --- save to pickle ---
                 with open(cache_month_path, 'wb') as handle:
                     pickle.dump(cache, handle)
+                
+                self.cache = cache
         
             else:
                 results = self._run_jobs(needed, m)

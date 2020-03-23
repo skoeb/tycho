@@ -19,8 +19,8 @@ from tycho.loader import PUDLLoader, CEMSLoader, GPPDLoader
 from tycho.merger import TrainingDataMerger, RemoteDataMerger
 from tycho.splitter import FourWaySplit
 from tycho.sanitizer import ColumnSanitizer, OneHotEncodeWithThresh, DropNullColumns
-from tycho.featureengineer import CapacityFeatures
-
+from tycho.featureengineer import CapacityFeatures, DateFeatures, calc_average_y_vals_per_MW, ApplyAvgY
+from tycho.visualizer import plot_cems_emissions, plot_corr_heatmap, plot_eda_pair, plot_map_plants
 
 # --- Initialize Logging ---
 logging.basicConfig(

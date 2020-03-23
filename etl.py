@@ -14,7 +14,7 @@ import json
 import itertools
 import random
 import pickle
-import logging
+
 
 # --- External Libraries ---
 import pandas as pd
@@ -27,55 +27,73 @@ import ee
 import tycho
 from tycho.config import *
 
-log = logging.getLogger("train")
+import logging
+log = logging.getLogger("tycho")
 
 def main():
 
     # --- Fetch EPA CEMS data if not present in 'data/CEMS/csvs' (as zip files) ---
-    CEMSFETCHER = tycho.EPACEMSFetcher()
-    CEMSFETCHER.fetch()
+    CemsFetch = tycho.EPACEMSFetcher()
+    CemsFetch.fetch()
 
     # --- Load EIA 860/923 data from PUDL ---
-    pudlloader = tycho.PUDLLoader()
-    pudlloader.load()
-    eightsixty = pudlloader.eightsixty
+    PudlLoad = tycho.PUDLLoader()
+    PudlLoad.load()
+    eightsixty = PudlLoad.eightsixty
 
     # --- load CEMS data from pickle, or construct dataframe from csvs ---
-    CEMS = tycho.CEMSLoader()
-    CEMS.load()
-    cems = CEMS.cems
+    CemsLoad = tycho.CEMSLoader()
+    CemsLoad.load()
+    cems = CemsLoad.cems
 
     # --- Load WRI Global Power Plant Database data from csv ---
-    GPPD = tycho.GPPDLoader() 
-    GPPD.load()
-    gppd = GPPD.gppd
-
+    GppdLoad = tycho.GPPDLoader() 
+    GppdLoad.load()
+    gppd = GppdLoad.gppd
+    
     # --- Merge eightsixty, gppd, cems together into a long_df ---
-    MERGER = tycho.TrainingDataMerger(eightsixty, gppd, cems)
-    MERGER.merge()
-    df = MERGER.df
+    TrainingMerge = tycho.TrainingDataMerger(eightsixty, gppd, cems)
+    TrainingMerge.merge()
+    df = TrainingMerge.df
 
     # --- Only keep n_generators worth of plants ---
     if tycho.N_GENERATORS != None:
-        log.info(f'....reducing n_generators down to {N_GENERATORS} from config')
-        _df = df.sample(1, random_state=42)
-        plant_ids = list(set(_df['plant_id_eia']))
+        # --- Create list of plant_id_wri ---
+        plant_ids = list(set(df['plant_id_wri']))
+        plant_ids = sorted(plant_ids)
+
+        # --- Shuffle ---
+        random.Random(42).shuffle(plant_ids)
+
+        # --- Subset list ---
+        log.info(f"....reducing n_generators down from {len(plant_ids)} from config")
         keep = plant_ids[0:N_GENERATORS]
-        df = df.loc[df['plant_id_eia'].isin(keep)]
 
-    # --- Load Google Earth Engine Data using db for dates ---
+        # --- Subset df ---
+        df = df.loc[df['plant_id_wri'].isin(keep)]
+        log.info(f"....n_generators now {len(list(set(df['plant_id_wri'])))} from config")
+    
+    # --- Output pickle ---
+    df.to_pickle(os.path.join('processed','pre_ee.pkl'))
+
+    # --- Load Google Earth Engine Data using df for dates ---
     for earthengine_db in EARTHENGINE_DBS:
-        EESCRAPER = tycho.EarthEngineFetcher(earthengine_db, buffers=BUFFERS)
-        EESCRAPER.fetch(df)
+        EeFetch = tycho.EarthEngineFetcher(earthengine_db, buffers=BUFFERS)
+        EeFetch.fetch(df)
 
+    # --- Merge Remote Sensing (Earth Engine) Data onto df ---
+    RemoteMerge = tycho.RemoteDataMerger()
+    df = RemoteMerge.merge(df)
+    
     # --- Save to Pickle ---
-    with open(os.path.join('processed','clean_df.pkl'), 'wb') as handle:
+    with open(os.path.join('processed','merged_df.pkl'), 'wb') as handle:
         pickle.dump(df, handle)
+
+    # --- Generate Plots ---
+    tycho.plot_cems_emissions(df)
+    tycho.plot_corr_heatmap(df)
+    tycho.plot_eda_pair(df)
+    tycho.plot_map_plants(gppd)
 
 if __name__ == '__main__':
     main()
-
-"""
-TODO:
-- Try on weekly basis
-"""

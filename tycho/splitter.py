@@ -31,7 +31,7 @@ log = logging.getLogger("tycho")
 class FourWaySplit():
     """
     X/y - Train/test split similar to sklearn's implementation, but keeping a holdout
-    set of generators with all dataes consistent in test.
+    set of generators with all dates consistent in test.
 
     Inputs
     ------
@@ -54,11 +54,11 @@ class FourWaySplit():
     - that the input dataframe is geographically balanced
     """
 
-    def __init__(self, testfrac=0.2, seed=42):
+    def __init__(self, how=config.HOW_TO_SPLIT, seed=42):
         log.info('\n')
         log.info('Initializing TrainTestSplit')
 
-        self.testfrac = testfrac
+        self.how = how
         self.seed = seed
     
     def _train_test_split(self, df):
@@ -70,18 +70,22 @@ class FourWaySplit():
         _df.reset_index(inplace=True, drop=False)
 
         # --- split generator list ---
-        gens = list(set(_df['plant_id_wri']))
-        train_len = int((1-self.testfrac) * len(gens))
-        train_gens = gens[0:train_len]
-        test_gens = gens[train_len:]
+        if isinstance(self.how, float): #split by a fraction of generators
+            gens = list(set(_df['plant_id_wri']))
+            train_len = int((1-self.how) * len(gens))
+            train_gens = gens[0:train_len]
+            test_gens = gens[train_len:]
+        
+        elif isinstance(self.how, list): #split by a list of countries (i.e. ['Puerto Rico'])
+            for r in self.how:
+                assert r in list(set(_df['country_long']))
+
+            train_gens = list(set(~_df.loc[_df['country_long'].isin(self.how)], 'plant_id_wri'))
+            test_gens = list(set(_df.loc[_df['country_long'].isin(self.how)], 'plant_id_wri'))
         
         # --- split data frame ---
         train = _df.loc[_df['plant_id_wri'].isin(train_gens)]
         test = _df.loc[_df['plant_id_wri'].isin(test_gens)]
-
-        # --- set index ---
-        train = train.set_index(['plant_id_wri', 'datetime_utc'])
-        test = test.set_index(['plant_id_wri', 'datetime_utc'])
 
         self.train = train
         self.test = test

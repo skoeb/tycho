@@ -2,7 +2,7 @@
 
 # tycho-emissions
 
-tycho is power sector (scope 2) emissions measurement data collection pipeline to enable supervised machine learning modelling of every power plant in the world. 
+Tycho is a power sector (scope 2) emissions measurement data collection pipeline to enable supervised machine learning modelling of every power plant in the world. 
 
 ### Tycho's ETL process includes:
 * Fetching data from U.S. regulatory reporting to geocode fossil fuel power plants with hourly emission profiles for SO<sub>2</sub>, NO<sub>x</sub> and CO<sub2</sub>.

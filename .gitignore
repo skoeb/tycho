@@ -1,8 +1,8 @@
-*.txt
 *.sqlite
 *.pyc
 
 data/CEMS/csvs/*.zip
+logs/*.txt
 
 .ipynb_checkpoints
 .vscode

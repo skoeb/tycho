@@ -25,5 +25,5 @@ gppd = pd.read_pickle(os.path.join('processed','gppd_clean.pkl'))
 
 # tycho.plot_cems_emissions(merged)
 # tycho.plot_corr_heatmap(merged)
-tycho.plot_eda_pair(merged)
-# tycho.plot_map_plants(gppd)
+# tycho.plot_eda_pair(merged)
+tycho.plot_map_plants(gppd)

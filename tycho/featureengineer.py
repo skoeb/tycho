@@ -25,9 +25,12 @@ import logging
 log = logging.getLogger("tycho")
 
 class CapacityFeatures(TransformerMixin):
-    # def __init__(self):
+    def __init__(self):
+        self.region_fuel_table = None
+        self.region_table = None
 
-    def _calc(self, X):
+
+    def _calc(self, X, update_table=False):
         
         Xt = X.copy()
 
@@ -41,10 +44,10 @@ class CapacityFeatures(TransformerMixin):
         Xt['region'] = Xt['region'].fillna(Xt['country'])
         
         # --- calc total capacity by region ---
-        Xt['region_mw'] = Xt.groupby('region')['wri_capacity_mw'].transform(lambda x: x.sum())
+        Xt = Xt.merge(self.region_table, on='region', how='left')
         
         # --- calc total capcity from fuel source by region ---
-        Xt['region_fuel_mw'] = Xt.groupby(['region','fuel_type_code_pudl'])['wri_capacity_mw'].transform(lambda x: x.sum())
+        Xt = Xt.merge(self.region_fuel_table, on=['region','primary_fuel'], how='left')
         
         # --- calc plant % of total capcity by region ---
         Xt['plant_region_pct'] = Xt['wri_capacity_mw'] / Xt['region_mw']
@@ -53,36 +56,84 @@ class CapacityFeatures(TransformerMixin):
         Xt['plant_region_fuel_pct'] = Xt['wri_capacity_mw'] / Xt['region_mw']
 
         # --- calc plant avg capacity factor ---
-        Xt['capacity_factor'] = Xt['generation_gwh_2017'] / (Xt['wri_capacity_mw'] * 8760)
+        Xt['capacity_factor'] = (Xt['generation_gwh_2017'] * 1000) / (Xt['wri_capacity_mw'] * 8760)
         
         # --- calc fuel avg capacity factor for region ---
-        Xt['avg_region_fuel_capacity_factor'] = Xt.groupby(['region','fuel_type_code_pudl'])['capacity_factor'].transform(lambda x: x.mean())
+        # Xt['avg_region_fuel_capacity_factor'] = Xt.groupby(['region','primary_fuel'])['capacity_factor'].transform(lambda x: x.mean())
         
         # --- calc difference between plant cf and region class avg ---
-        Xt['capacity_factor_diff'] = Xt['capacity_factor'] - Xt['avg_region_fuel_capacity_factor']
+        # Xt['capacity_factor_diff'] = Xt['capacity_factor'] - Xt['avg_region_fuel_capacity_factor']
 
         # --- Drop country and state columns ---
-        Xt = Xt.drop(['region','country','state'], axis='columns')
+        Xt = Xt.drop(['region','country','state'], axis='columns', errors='ignore')
 
         return Xt
+    
+
+    def _update_table(self, X):
+
+        Xt = X.copy()
+
+        # --- turn state into region ---
+        if 'state' in Xt.columns:
+            Xt['region'] = Xt['state']
+        else:
+            Xt['region'] = Xt['country']
+
+        train_data = Xt[['region','primary_fuel','wri_capacity_mw']]
+
+        # --- create lookup tables ---
+        new_region_fuel_table = train_data.groupby(['region','primary_fuel'], as_index=False)['wri_capacity_mw'].sum()
+        new_region_fuel_table = new_region_fuel_table.rename({'wri_capacity_mw':'region_fuel_mw'}, axis='columns')
         
-    def fit(self, X, y=None):
+        new_region_table = train_data.groupby(['region'], as_index=False)['wri_capacity_mw'].sum()
+        new_region_table = new_region_table.rename({'wri_capacity_mw':'region_mw'}, axis='columns')
+
+        # --- write new tables ---
+        if isinstance(self.region_fuel_table, type(None)):
+            self.region_fuel_table = new_region_fuel_table
+            self.region_table = new_region_table
+
+        # --- update existing tables --- 
+        else:
+            region_fuel_merged = self.region_fuel_table.merge(new_region_fuel_table, on=['region','primary_fuel'])
+            region_merged = self.region_table.merge(new_region_table, on=['region'])
+
+            region_fuel_merged['region_fuel_mw'] = region_fuel_merged[['region_fuel_mw_x', 'region_fuel_mw_y']].sum(axis=1)
+            region_merged['region_mw'] = region_merged[['region_mw_x','region_mw_y']].sum(axis=1)
+
+            region_fuel_merged = region_fuel_merged[['region','primary_fuel','region_fuel_mw']]
+            region_merged = region_merged[['region','region_mw']]
+
+            self.region_fuel_table = region_fuel_merged
+            self.region_table = region_merged
+
         return self
 
+
+    def fit(self, X, y=None):
+        self._update_table(X)
+        return self
+
+
     def transform(self, X, y=None):
-        Xt = self._calc(X)
+        self._update_table(X)
+        Xt = self._calc(X, update_table=True)
         return Xt
 
 
 class DateFeatures(TransformerMixin):
-    # def __init__(self):
+    def __init__(self):
+        pass
 
     def _calc(self, X):
         
         Xt = X.copy()
 
         # --- get day of week ---
-        Xt['dow'] = [i]
+        Xt['dow'] = [i.dayofweek for i in Xt['datetime_utc']]
+
+        # --- 
 
         return Xt
         
@@ -92,3 +143,46 @@ class DateFeatures(TransformerMixin):
     def transform(self, X, y=None):
         Xt = self._calc(X)
         return Xt
+
+def calc_average_y_vals_per_MW(df,
+                               groupbycols=['month','primary_fuel'],
+                               y_cols=config.CEMS_Y_COLS):
+    
+    # --- Create needed cols ---
+    df['month'] = [i.month for i in df['datetime_utc']]
+    
+    for y in y_cols:
+        df[f'{y}_per_MW'] = df[y] / df['wri_capacity_mw']
+
+    
+    # --- group training data by groupbycols ---
+    per_MW_cols = [f'{y}_per_MW' for y in y_cols]
+    grouped_avg = df.groupby(groupbycols, as_index=False)[per_MW_cols].mean()
+    grouped_std = df.groupby(groupbycols, as_index=False)[per_MW_cols].agg(np.std, ddof=0)
+
+    # --- merge grouped ---
+    grouped = grouped_avg.merge(grouped_std, on=groupbycols, how='inner', suffixes=('_mean', '_std'))
+
+    # --- output ---
+    grouped.to_pickle(os.path.join('models', 'avg_y_table.pkl'))
+
+    return grouped
+
+class ApplyAvgY(TransformerMixin):
+    def __init__(self, avg_table=None):
+        if isinstance(avg_table, type(None)):
+            self.avg_table = pd.read_pickle(os.path.join('models', 'avg_y_table.pkl'))
+        else:
+            self.avg_table = avg_table
+
+    def _merge(self, X):
+        Xt = X.merge(self.avg_table, on=['month','primary_fuel'], how='left')
+        return Xt
+    
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X):
+        Xt = self._merge(X)
+        return Xt
+        

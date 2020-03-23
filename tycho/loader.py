@@ -13,6 +13,7 @@ import json
 import itertools
 import random
 import pickle
+import zipfile
 
 # --- External Libraries ---
 import pandas as pd
@@ -70,8 +71,9 @@ class CEMSLoader():
     - see load() method description
     - underlying data (.csvs from FTP) have not changed if use_pickle is True
     """
-    def __init__(self, ts_frequency='D', years=[2019], clean_on_load=True,
-                 use_pickle=True):
+    def __init__(self, ts_frequency=config.TS_FREQUENCY,
+                 years=[2019], clean_on_load=True,
+                 use_pickle=True, save_pickle=True):
         
         log.info('\n')
         log.info('Initializing CEMSLoader')
@@ -80,13 +82,26 @@ class CEMSLoader():
         self.years = years
         self.dir_path = os.path.join('data','CEMS','csvs')
         self.clean_on_load = clean_on_load
-        
+
+        if self.ts_frequency == 'H':
+            self.ts_expected_count = 8760
+        elif self.ts_frequency == 'D':
+            self.ts_expected_count = 365
+        elif self.ts_frequency == 'W-SUN':
+            self.ts_expected_count = 52
+        elif self.ts_frequency in ['A','AS']:
+            self.ts_expected_count = 1
+        elif self.ts_frequency in ['MS']:
+            self.ts_expected_count = 12
+        else:
+            raise NotImplementedError('Please write a wrapper for {}'.format(self.ts_frequency))
         
         self.use_pickle = use_pickle
         years_clean = [str(i) for i in years]
         years_clean = '-'.join(years_clean) #save as seperate caches
         self.pkl_path = os.path.join('data','CEMS','processed',f"cems_{ts_frequency}_{years_clean}.pkl")
-        
+        self.save_pickle = save_pickle
+
         self.cems = None
 
     
@@ -104,10 +119,7 @@ class CEMSLoader():
         ten_percent = max(1, int(len(files)*0.1))
         done = 0
         for f in files:
-            _df = pd.read_csv(os.path.join(self.dir_path, f))
-            if self.clean_on_load:
-                _df = self._clean_cems(_df)
-
+            _df = pd.read_csv(os.path.join(self.dir_path, f), low_memory=False)
             to_concat.append(_df)
             done +=1
             if done % ten_percent == 0:
@@ -119,7 +131,7 @@ class CEMSLoader():
             
         return self
     
-    def _clean_cems(self, df):
+    def _clean_cems(self):
         
         rename_dict = {
             'STATE':'state',
@@ -135,14 +147,14 @@ class CEMSLoader():
         }
 
         # --- Rename columns ---
-        df = df.rename(rename_dict, axis='columns')
+        self.cems.rename(rename_dict, axis='columns', inplace=True)
 
         # --- Convert to datetime ---
-        if self.ts_frequency != 'D':
-            df['hour'] = [str(i)+':00:00' for i in df['hour']]
-            df['datetime_utc'] = pd.to_datetime(df['date'] + ' ' + df['hour'])
-        elif self.ts_frequency == 'D':
-            df['datetime_utc'] = pd.to_datetime(df['date'])
+        if self.ts_frequency == 'H':
+            self.cems['hour'] = [str(i)+':00:00' for i in self.cems['hour']]
+            self.cems['datetime_utc'] = pd.to_datetime(self.cems['date'] + ' ' + self.cems['hour'])
+        else:
+            self.cems['datetime_utc'] = pd.to_datetime(self.cems['date'])
             
          # --- Aggregate by unit ---
         agg_dict = {
@@ -152,43 +164,37 @@ class CEMSLoader():
             'co2_tons':'sum',
             'operational_time':'mean',
         }
-        df = df.groupby(['plant_id_eia','datetime_utc'], as_index=False).agg(agg_dict)
+        self.cems = self.cems.groupby(['plant_id_eia','datetime_utc'], as_index=False).agg(agg_dict)
         
         # --- Aggregate by ts_frequency ---
-        df = df.groupby('plant_id_eia').resample(self.ts_frequency, on='datetime_utc').sum()
-        df.drop(['plant_id_eia'], axis='columns', inplace=True, errors='ignore') #duplicated by resample
-        df.reset_index(inplace=True, drop=False)
+        self.cems = self.cems.groupby('plant_id_eia').resample(self.ts_frequency, on='datetime_utc').sum() #TODO: check how resampling works
+        self.cems.drop(['plant_id_eia'], axis='columns', inplace=True, errors='ignore') #duplicated by resample
+        self.cems.reset_index(inplace=True, drop=False)
         
-                
         # --- fill nans with zeros---
-        df = df.fillna(0)
+        self.cems = self.cems.fillna(0)
         
         # --- drop plants with a large number of zeros ---
-        df = df.loc[df.groupby('plant_id_eia')['nox_lbs'].filter(lambda x: len(x[x > 0]) > 0).index]
-        df = df.loc[df.groupby('plant_id_eia')['so2_lbs'].filter(lambda x: len(x[x > 0]) > 0).index]
-        df = df.loc[df.groupby('plant_id_eia')['co2_tons'].filter(lambda x: len(x[x > 0]) > 0).index]
+        self.cems = self.cems.loc[self.cems.groupby('plant_id_eia')['nox_lbs'].filter(lambda x: len(x[x > 0]) > 0).index]
+        self.cems = self.cems.loc[self.cems.groupby('plant_id_eia')['so2_lbs'].filter(lambda x: len(x[x > 0]) > 0).index]
+        self.cems = self.cems.loc[self.cems.groupby('plant_id_eia')['co2_tons'].filter(lambda x: len(x[x > 0]) > 0).index]
         
         # --- Drop unnecessary columns ---
         keep = ['datetime_utc','plant_id_eia',
-                'gross_load_mw','so2_lbs','nox_lbs','co2_tons','operational_time']
-        df = df[keep]
+                'gross_load_mw','so2_lbs','nox_lbs',
+                'co2_tons','operational_time']
+        self.cems = self.cems[keep]
 
         # --- convert co2 from tons to lbs ---
-        df['co2_lbs'] = df['co2_tons'] / 2000
-        df = df.drop(['co2_tons'], axis='columns')
+        self.cems['co2_lbs'] = self.cems['co2_tons'] * 2000
+        self.cems = self.cems.drop(['co2_tons'], axis='columns')
         
         # --- reduce size ---
-        df = helper.memory_downcaster(df)
-        
-        return df
-    
-    
-    def _post_load_clean(self):
+        self.cems = helper.memory_downcaster(self.cems)
         
         log.info(f"........postprocessing CEMS, len: {len(self.cems)}")
-        
         # --- drop plants without a full year of data ---
-        plant_id_eias_keep = list(set(self.cems.groupby('plant_id_eia', as_index=False)['plant_id_eia'].filter(lambda x: x.count() == 365)))
+        plant_id_eias_keep = list(set(self.cems.groupby('plant_id_eia', as_index=False)['plant_id_eia'].filter(lambda x: x.count() >= self.ts_expected_count*0.9)))
         self.cems = self.cems.loc[self.cems['plant_id_eia'].isin(plant_id_eias_keep)]
         log.info(f"........droping generators without a full year of data, len: {len(self.cems)}")
         
@@ -197,8 +203,8 @@ class CEMSLoader():
         
         return self
     
+
     def load(self):
-        
         # --- Try to load aggregated pickle ---
         if self.use_pickle:
             if os.path.exists(self.pkl_path):
@@ -208,12 +214,16 @@ class CEMSLoader():
         # --- Calculate aggregate df from csvs ---
         if not isinstance(self.cems, pd.DataFrame):
             self._read_csvs()
-            self._post_load_clean()
+            self._clean_cems()
             
             # --- Save pickle ---
             if self.use_pickle:
                 log.info('....saving CEMS to pickle')
                 self.cems.to_pickle(self.pkl_path)
+                # --- Out ---
+        
+        if self.save_pickle:
+            self.cems.to_pickle(os.path.join('processed','cems_clean.pkl'))
                 
         return self
 
@@ -247,24 +257,32 @@ class GPPDLoader():
     - 'Coal','Oil','Gas','Petcoke','Cogeneration' resources are the only generator types with emissions. 
     """
 
-    def __init__(self,round_coords_at=3, countries=['United States of America']):
+    def __init__(self,
+                 round_coords_at=3,
+                 countries=config.TRAIN_COUNTRIES + config.PREDICT_COUNTRIES,
+                 save_pickle=True):
 
         log.info('\n')
         log.info('Initializing GPPDLoader')
         
         self.round_coords_at = round_coords_at #.01 degrees = 1 km
         self.countries = countries
+        self.save_pickle = save_pickle
 
         
     def _load_csv(self):
-        self.gppd = pd.read_csv(os.path.join('data','wri','global_power_plant_database.csv'))
+        csv_path = os.path.join('data','wri')
+        self.gppd = pd.read_csv(os.path.join(csv_path,'global_power_plant_database.csv'), low_memory=False)
+        self.pr = pd.read_csv(os.path.join(csv_path, 'gppd_120_pr.csv'))
         return self
     
     
     def _make_geopandas(self):
+        
         self.gppd = gpd.GeoDataFrame(
             self.gppd, geometry=gpd.points_from_xy(self.gppd['longitude'], self.gppd['latitude']))
         self.gppd.crs = "EPSG:4326"
+        
         return self
     
     
@@ -272,6 +290,7 @@ class GPPDLoader():
         
         keep = [
             'country',
+            'country_long',
             'wri_capacity_mw',
             'latitude',
             'longitude',
@@ -285,25 +304,45 @@ class GPPDLoader():
             'estimated_generation_gwh',
             'plant_id_wri'
         ]
-
-        # --- Round lat lon ---
-        self.gppd[['latitude','longitude']] = self.gppd[['latitude','longitude']].round(self.round_coords_at)
         
+        # --- change puerto rico to its own country ---
+        pr_ids = list(set(self.pr['gppd_idnr']))
+        self.gppd.loc[self.gppd['gppd_idnr'].isin(pr_ids), 'country_long'] = 'Puerto Rico'
+        self.gppd.loc[self.gppd['gppd_idnr'].isin(pr_ids), 'country'] = 'PRI'
+
         # --- Filter country ---
         log.info(f"........filtering gppd to include {self.countries}")
         if 'all' not in self.countries: #include all countries
             for country in self.countries:
                 assert country in set(self.gppd['country_long'])
-                self.gppd = self.gppd.loc[self.gppd['country_long'].isin(self.countries)]
+            self.gppd = self.gppd.loc[self.gppd['country_long'].isin(self.countries)]
+        
+        # --- Round lat lon ---
+        self.gppd[['latitude','longitude']] = self.gppd[['latitude','longitude']].round(self.round_coords_at)
         
         # --- Drop non fossil fuels ---
-        self.gppd = self.gppd.loc[self.gppd['primary_fuel'].isin(['Coal','Oil','Gas','Petcoke','Cogeneration'])]
+        self.gppd = self.gppd.loc[self.gppd['primary_fuel'].isin(['Coal','Oil','Gas','Petcoke'])]
         
         # --- Rename columns ---
         self.gppd.rename({ 
                             'capacity_mw':'wri_capacity_mw',
                             'gppd_idnr':'plant_id_wri',
                         }, axis='columns', inplace=True)
+
+        # --- fill generation nans ---
+        gen_cols = [
+            'generation_gwh_2013',
+            'generation_gwh_2014',
+            'generation_gwh_2015',
+            'generation_gwh_2016',
+            'generation_gwh_2017',
+            'estimated_generation_gwh'
+        ]
+
+        self.gppd[gen_cols] = self.gppd[gen_cols].replace(0, np.nan) \
+                                    .interpolate(method='linear', axis='columns') \
+                                    .fillna(method='backfill', axis='columns') \
+                                    .fillna(method='ffill', axis='columns')
         
         # --- filter columns we want ---
         self.gppd = self.gppd[keep]
@@ -324,6 +363,10 @@ class GPPDLoader():
         
         # --- Make Geopandas ---
         self._make_geopandas()
+
+        # --- Out ---
+        if self.save_pickle:
+            self.gppd.to_pickle(os.path.join('processed','gppd_clean.pkl'))
         
         return self
 
@@ -366,20 +409,34 @@ class PUDLLoader():
     """
 
     def __init__(self, years=[2018],
-                 round_coords_at=3):
+                 round_coords_at=3,
+                 save_pickle=True):
         
         log.info('\n')
         log.info('Initializing PUDLLoader')
 
         self.years = years
         self.round_coords_at = round_coords_at
-        
+        self.save_pickle = save_pickle
+
+        self.db_path = os.path.join('data','pudl-work','sqlite','pudl.sqlite')
+    
+    def _unzip(self):
+        log.info('........unzipping sqlite db')
+        db_folder_path = os.path.join('data','pudl-work','sqlite')
+        with zipfile.ZipFile(os.path.join(db_folder_path, 'pudl.sqlite.zip'), 'r') as zip_ref:
+            zip_ref.extractall(db_folder_path)
+        return self
+
     def _connect_to_sqlite(self):
         log.info('....connecting to sqlite for 860/923 data')
-        self.db_path = os.path.join('data','pudl-work','sqlite','pudl.sqlite')
+        if os.path.exists(self.db_path):
+            pass
+        else:
+            self._unzip()
+
         self.engine = sqlite3.connect(self.db_path)
         return self
-    
     
     def _load_plants_entity_eia(self):
         log.info('....loading plant level data')
@@ -508,5 +565,9 @@ class PUDLLoader():
         
         # --- Make Geopandas ---
         self._make_geopandas()
+
+        # --- Out ---
+        if self.save_pickle:
+            self.eightsixty.to_pickle(os.path.join('processed','eightsixty_clean.pkl'))
         
         return self

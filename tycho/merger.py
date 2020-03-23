@@ -165,6 +165,7 @@ class TrainingDataMerger():
             'plant_id_eia',
             'plant_id_wri',
             'country',
+            'country_long',
         ]
 
         # --- Drop unneeded cols ---
@@ -183,7 +184,7 @@ class TrainingDataMerger():
             'estimated_generation_gwh':'sum',
         }
         self.gppd = self.gppd.sort_values('wri_capacity_mw', ascending=False)
-        self.gppd = self.gppd.groupby(['plant_id_eia','plant_id_wri','country'], as_index=False).agg(agg_dict)
+        self.gppd = self.gppd.groupby(['plant_id_eia','plant_id_wri','country','country_long'], as_index=False).agg(agg_dict)
 
         #TODO: consider just dropping these rather than the groupby above
         # # --- Filter out plants that duplicate eightsixty was found ---
@@ -204,6 +205,18 @@ class TrainingDataMerger():
         self.df = self.df[self.df['diff'] <= self.df['thresh']]
         self.df = self.df.drop(['diff','thresh'], axis='columns')
         log.info(f"........post-merge generator count in df: {len(set(self.df['plant_id_eia']))}")
+
+        # --- Drop plants with no emissions ---
+        grouped_emissions = self.df.groupby('plant_id_wri')[['co2_lbs','nox_lbs','so2_lbs']].sum().sum(axis=1)
+        nonzero_emissions = grouped_emissions.loc[grouped_emissions > 0]
+        nonzero_emission_ids = list(nonzero_emissions.index)
+        self.df = self.df.loc[self.df['plant_id_wri'].isin(nonzero_emission_ids)]
+
+        # --- Drop plants outside of 5-95% operational time ---
+        grouped_time = self.df.groupby('plant_id_wri')['operational_time'].sum()
+        nonzero_time = grouped_time.loc[grouped_time > 0]
+        nonzero_time_ids = list(nonzero_time.index)
+        self.df = self.df.loc[self.df['plant_id_wri'].isin(nonzero_time_ids)]
 
         # --- convert back to DataFrame ---
         self.df = pd.DataFrame(self.df)
@@ -243,7 +256,7 @@ class RemoteDataMerger():
     def __init__(self,
                 earthengine_dbs=config.EARTHENGINE_DBS,
                 buffers=config.BUFFERS,
-                ts_frequency='D'):
+                ts_frequency=config.TS_FREQUENCY):
         self.earthengine_dbs = [i.replace('/','-') for i in earthengine_dbs]
         self.buffers = buffers
         self.ts_frequency = ts_frequency
@@ -255,11 +268,12 @@ class RemoteDataMerger():
         self.clean_files = []
         # --- find out which files to read in --
         for f in files:
-            if '&' in f:
-                db, ts, m = f.split('&')
+            if '#' in f:
+                db, ts, m = f.split('#')
                 ts = ts.replace('agg', '')
-                if (db in self.earthengine_dbs) & (ts == self.ts_frequency):
-                    self.clean_files.append(f) 
+                if ts == self.ts_frequency:
+                    if db in self.earthengine_dbs:
+                        self.clean_files.append(f) 
 
         # --- read files and concat ---
         dfs = []
@@ -267,8 +281,9 @@ class RemoteDataMerger():
             dfs.append(pd.read_pickle(os.path.join(self.pickle_path, f)))
         
         # --- concat dfs into long earthengine df ---
-        self.earthengine = pd.concat(dfs, axis='rows', sort=False)
-
+        if len(dfs) > 0:
+            self.earthengine = pd.concat(dfs, axis='rows', sort=False)
+            
         return self
 
     def _pivot_buffers(self, buffers=config.BUFFERS):
@@ -285,6 +300,7 @@ class RemoteDataMerger():
 
     def _merge_pivot(self, df):
         """Merge pivot onto df (continaing generators and CEMS if training)."""
+
         self.merged = df.merge(self.pivot, on=['plant_id_wri', 'datetime_utc'])
         return self
 

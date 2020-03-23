@@ -23,7 +23,6 @@ earthengine-api==0.1.214
 Fiona==1.8.13
 fsspec==0.6.3
 future==0.18.2
-GDAL==3.0.4
 geopandas==0.7.0
 google-api-core==1.16.0
 google-api-python-client==1.8.0

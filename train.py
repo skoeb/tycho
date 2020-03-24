@@ -131,7 +131,7 @@ elif TRAIN_MODEL == 'tpot':
         cv=CV_FOLDS,
         config_dict=TPOT_CONFIG_DICT,
         max_time_mins=TPOT_TIMEOUT_MINS,
-        max_eval_time_mins=3,
+        # max_eval_time_mins=3,
         # warm_start=True
     )
 

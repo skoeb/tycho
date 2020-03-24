@@ -81,8 +81,6 @@ pandas_pipe = Pipeline(steps=[
 numpy_pipe = Pipeline(steps=[
                         ('imputer', SimpleImputer()),
                         ('scaler', MinMaxScaler()),
-                        # ('polynomial',PolynomialFeatures(include_bias=False)),
-                        # ('pca', PCA(0.8)),   
 ])
 
 preprocess_pipe = Pipeline(steps=[
@@ -123,6 +121,7 @@ elif TRAIN_MODEL == 'xgb':
     ])
 
 elif TRAIN_MODEL == 'tpot':
+
     model = tpot.TPOTRegressor(
         generations=TPOT_GENERATIONS,
         population_size=TPOT_POPULATION_SIZE,
@@ -130,9 +129,10 @@ elif TRAIN_MODEL == 'tpot':
         verbosity=2,
         n_jobs=-1,
         cv=CV_FOLDS,
-        config_dict='TPOT light',
-        max_time_mins=180,
-        max_eval_time_mins=5
+        config_dict=TPOT_CONFIG_DICT,
+        max_time_mins=TPOT_TIMEOUT_MINS,
+        max_eval_time_mins=3,
+        # warm_start=True
     )
 
 # --- Create dfs for output ---

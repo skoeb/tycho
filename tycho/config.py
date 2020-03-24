@@ -4,6 +4,8 @@ Created on Sat Mar  7 08:48:27 2020
 @author: SamKoebrich
 """
 
+import tycho.tpot_custom_configs as tpot_configs
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~ GENERAL SETTINGS ~~~~~~~~~~~~~
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -15,7 +17,7 @@ N_GENERATORS = None
 
 # --- Multiprocessing settings ---
 MULTIPROCESSING = True
-WORKERS = 6
+WORKERS = 12
 THREADS = 6 #ThreadPoolExecutor is failing for Earth Engine queries, so this is still using ProcessPool
 
 # --- Bool for detailed output ---
@@ -25,8 +27,10 @@ VERBOSE = False
 TS_FREQUENCY = 'W-SUN'
 
 TRAIN_COUNTRIES = ['United States of America']
-HOW_TO_SPLIT = 0.25 #train/test split by fraction or list of countries/states
 PREDICT_COUNTRIES = ['Puerto Rico']
+
+PREDICT_START_DATE = '01-01-2019'
+PREDICT_END_DATE = '03-01-2020'
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~ EARTH ENGINE SETTINGS ~~~~~~~~~~
@@ -66,6 +70,7 @@ CEMS_Y_COLS = [ #LEAKAGE WARNING! Removing something from this list will cause i
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~~~ ML SETTINGS ~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+HOW_TO_SPLIT = 0.25 #train/test split by fraction or list of countries/states
 TRAIN_MODEL = 'tpot'
 PREDICT_MODEL = 'tpot'
 ML_Y_COLS = ['gross_load_mw','so2_lbs','nox_lbs','co2_lbs']
@@ -74,12 +79,12 @@ CV_FOLDS = 3
 
 # --- Grid search params for XGB Training ---
 XGB_PARAMS = {
-    'learning_rate': [0.05, 0.1, 0.2],
-    'estimators':[50, 100, 200],
+    'learning_rate': [0.1],
+    'estimators':[100],
     'min_child_weight': [0, 1, 6, 8, 10],
-    'subsample': [0.4, 0.5, 0.6],
-    'max_depth': [3, 5, 7],
-    # 'gamma': [0.5, 1, 1.5, 2, 5],
+    'subsample': [0.6],
+    'max_depth': [8,9,10],
+    'gamma': [0.5, 1, 2, 5],
     # 'colsample_bytree': [0.6, 0.8, 1.0],
     # 'tree_method':['gpu_hist'],
     # 'gpu_hist':[0],
@@ -88,5 +93,7 @@ XGB_PARAMS = {
 RANDOMSEARCH_ITER = 50
 
 # --- Params for TPOT Training ---
-TPOT_GENERATIONS = 20
-TPOT_POPULATION_SIZE = 48
+TPOT_GENERATIONS = 10
+TPOT_POPULATION_SIZE = 10
+TPOT_TIMEOUT_MINS = 240
+TPOT_CONFIG_DICT = tpot_configs.regressor_config_decision_tree #'TPOT Light'

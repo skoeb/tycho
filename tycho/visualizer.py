@@ -388,7 +388,7 @@ def plot_emission_factor(data_type='pred',
     # --- Subset to endo/exo ---
     melted = melted.loc[melted['source'].isin(sources)]
     
-    fig, ax = plt.subplots(dpi=300)
+    fig, ax = plt.subplots(dpi=300, figsize=(12,8))
     
     plot = sns.lineplot('datetime_utc','value', hue='variable', style='source',
                  data=melted, ax=ax)

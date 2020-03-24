@@ -70,12 +70,12 @@ CEMS_Y_COLS = [ #LEAKAGE WARNING! Removing something from this list will cause i
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~~~ ML SETTINGS ~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-HOW_TO_SPLIT = 0.25 #train/test split by fraction or list of countries/states
+HOW_TO_SPLIT = 0.75 #train/test split by fraction or list of countries/states
 TRAIN_MODEL = 'tpot'
 PREDICT_MODEL = 'tpot'
 ML_Y_COLS = ['gross_load_mw','so2_lbs','nox_lbs','co2_lbs']
 # ML_Y_COLS = ['so2_lbs','nox_lbs']
-CV_FOLDS = 3
+CV_FOLDS = 5
 
 # --- Grid search params for XGB Training ---
 XGB_PARAMS = {
@@ -93,7 +93,7 @@ XGB_PARAMS = {
 RANDOMSEARCH_ITER = 50
 
 # --- Params for TPOT Training ---
-TPOT_GENERATIONS = 10
-TPOT_POPULATION_SIZE = 10
-TPOT_TIMEOUT_MINS = 240
-TPOT_CONFIG_DICT = tpot_configs.regressor_config_decision_tree #'TPOT Light'
+TPOT_GENERATIONS = 100
+TPOT_POPULATION_SIZE = 100
+TPOT_TIMEOUT_MINS = 60*24
+TPOT_CONFIG_DICT = None #None #tpot_configs.regressor_config_decision_tree #'TPOT Light'

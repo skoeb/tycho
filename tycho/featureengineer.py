@@ -118,7 +118,9 @@ class CapacityFeatures(TransformerMixin):
 
     def transform(self, X, y=None):
         self._update_table(X)
+        log.info(f'....starting CapacityFeatures, shape {X.shape}')
         Xt = self._calc(X, update_table=True)
+        log.info(f'........finished CapacityFeatures, shape {Xt.shape}')
         return Xt
 
 
@@ -141,24 +143,30 @@ class DateFeatures(TransformerMixin):
         return self
 
     def transform(self, X, y=None):
+        log.info(f'....starting DateFeatures, shape {X.shape}')
         Xt = self._calc(X)
+        log.info(f'........finished DateFeatures, shape {Xt.shape}')
         return Xt
 
 def calc_average_y_vals_per_MW(df,
                                groupbycols=['month','primary_fuel'],
                                y_cols=config.CEMS_Y_COLS):
     
+    X = df.copy()
+    
+    # --- drop gross_load_mw from y_cols ---
+    y_cols = [c for c in y_cols if c not in 'gross_load_mw']
+
     # --- Create needed cols ---
-    df['month'] = [i.month for i in df['datetime_utc']]
+    X['month'] = [i.month for i in X['datetime_utc']]
     
     for y in y_cols:
-        df[f'{y}_per_MW'] = df[y] / df['wri_capacity_mw']
-
+        X[f'{y}_per_MW'] = X[y] / X['wri_capacity_mw']
     
     # --- group training data by groupbycols ---
     per_MW_cols = [f'{y}_per_MW' for y in y_cols]
-    grouped_avg = df.groupby(groupbycols, as_index=False)[per_MW_cols].mean()
-    grouped_std = df.groupby(groupbycols, as_index=False)[per_MW_cols].agg(np.std, ddof=0)
+    grouped_avg = X.groupby(groupbycols, as_index=False)[per_MW_cols].mean()
+    grouped_std = X.groupby(groupbycols, as_index=False)[per_MW_cols].agg(np.std, ddof=0)
 
     # --- merge grouped ---
     grouped = grouped_avg.merge(grouped_std, on=groupbycols, how='inner', suffixes=('_mean', '_std'))
@@ -183,6 +191,8 @@ class ApplyAvgY(TransformerMixin):
         return self
     
     def transform(self, X):
+        log.info(f'....starting ApplyAvgY, shape {X.shape}')
         Xt = self._merge(X)
+        log.info(f'........finished ApplyAvgY, shape {Xt.shape}')
         return Xt
         

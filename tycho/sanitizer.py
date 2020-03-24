@@ -28,19 +28,6 @@ log = logging.getLogger("tycho")
 class ColumnSanitizer():
     """
     Drop columns that should not be used for ML pipelines. 
-
-    Inputs
-    ------
-
-    Methods
-    -------
-
-    Attributes
-    ----------
-
-    Assumptions
-    -----------
-
     """
     def __init__(self):
         pass
@@ -57,18 +44,18 @@ class ColumnSanitizer():
             'fuel_type_code_pudl','multiple_fuels',
             'planned_retirement_year','plant_name_eia',
             'city','county','latitude','longitude',
-            'timezone','geometry'
+            'timezone','geometry','index',
         ]
 
         df = df.drop(drop_cols, axis='columns', errors='ignore')
         return df
 
-    def sanitize(self, df):
-
+    def sanitize(self, X):
         # --- drop columns ---
-        df = self._drop(df) 
-
-        return df
+        log.info(f'....starting ColumnSanitizer, shape {X.shape}')
+        Xt = self._drop(X) 
+        log.info(f'........finished ColumnSanitizer, shape {Xt.shape}')
+        return Xt
 
 class OneHotEncodeWithThresh(TransformerMixin):
     def __init__(self, n_unique=12):
@@ -97,7 +84,7 @@ class OneHotEncodeWithThresh(TransformerMixin):
         return self
     
     def transform(self, X):
-        
+        log.info(f'....starting OneHotEncodeWithThresh, shape {X.shape}')
         Xt = pd.get_dummies(X, columns=self.categorical_cols)
 
         # --- add in 0 dummy_cols if not in (i.e. test set without a type of fuel) ---
@@ -107,6 +94,7 @@ class OneHotEncodeWithThresh(TransformerMixin):
         
         # --- force column order ---
         Xt= Xt.reindex(sorted(Xt.columns), axis=1)
+        log.info(f'........finished OneHotEncodeWithThresh, shape {Xt.shape}')
         return Xt
             
 
@@ -125,10 +113,31 @@ class DropNullColumns(TransformerMixin):
         return self
     
     def transform(self, X):
+        log.info(f'....starting DropNullColumns, shape {X.shape}')
         # --- drop null cols ---
         Xt = X.drop(self.null_cols, axis='columns')
 
         # --- drop identifier cols ---
         Xt = Xt.drop(['datetime_utc', 'plant_id_wri'], axis='columns', errors='ignore')
+        log.info(f'........finished DropNullColumns, shape {Xt.shape}')
         return Xt
             
+def apply_date_range_to_gppd(gppd,
+                            start_date=config.PREDICT_START_DATE,
+                            end_date=config.PREDICT_END_DATE,
+                            ts_frequency=config.TS_FREQUENCY):
+
+    # --- Initialize date range ---
+    date_range = pd.date_range(start=start_date, end=end_date, freq=ts_frequency)
+
+    # --- Permute ---
+    date_dfs = []
+    for d in date_range:
+        date_df = gppd.copy()
+        date_df['datetime_utc'] = d
+        date_dfs.append(date_df)
+
+    # --- Concat ---
+    df = pd.concat(date_dfs, axis='rows', sort=False)
+
+    return df

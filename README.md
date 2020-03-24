@@ -67,15 +67,3 @@ df = RemoteMerge.merge(df)
 ```
 
 This pipeline is contained within the `etl.py` script. User customization is included in `tycho/config.py` to specify things like `earthengine_dbs`, `buffers`, `geographies`, and `y_columns`. 
-
-After the ETL process is completed, feature engineering and train/test splitting is performed by `process.py`
-```python
-
-# Insert code from process.py here. 
-```
-
-
-## Installation
-
-
-## FAQs

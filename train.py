@@ -80,7 +80,7 @@ pandas_pipe = Pipeline(steps=[
 
 numpy_pipe = Pipeline(steps=[
                         ('imputer', SimpleImputer()),
-                        ('scaler', MinMaxScaler()),
+                        ('scaler', tycho.LowMemoryMinMaxScaler()),
 ])
 
 preprocess_pipe = Pipeline(steps=[
@@ -117,23 +117,8 @@ elif TRAIN_MODEL == 'xgb':
                 n_iter=RANDOMSEARCH_ITER,
                 scoring='neg_mean_squared_error',
                 cv=CV_FOLDS, verbose=1,
-                refit=True, n_jobs=-1))
+                refit=True, n_jobs=WORKERS))
     ])
-
-elif TRAIN_MODEL == 'tpot':
-
-    model = tpot.TPOTRegressor(
-        generations=TPOT_GENERATIONS,
-        population_size=TPOT_POPULATION_SIZE,
-        use_dask=True,
-        verbosity=2,
-        n_jobs=-1,
-        cv=CV_FOLDS,
-        config_dict=TPOT_CONFIG_DICT,
-        max_time_mins=TPOT_TIMEOUT_MINS,
-        # max_eval_time_mins=3,
-        # warm_start=True
-    )
 
 # --- Create dfs for output ---
 train_out_df = X_train_df[['datetime_utc','plant_id_wri', 'estimated_generation_gwh','primary_fuel']]
@@ -145,6 +130,53 @@ test_out_df = pd.concat([test_out_df, y_test_all], axis='columns')
 for y_col in ML_Y_COLS:
     log.info('\n')
     log.info(f'....beginning fit for {y_col} using {TRAIN_MODEL}')
+
+    if TRAIN_MODEL == 'tpot': #initialize different TPOT for each ycol
+        if TPOT_WARM_START:
+            checkpoint_path = os.path.join('models','tpot','checkpoints',y_col)
+            model_path = os.path.join(checkpoint_path, f'model_{y_col}_{TRAIN_MODEL}.pkl') #TODO: update
+            
+            if os.path.exists(model_path):
+                # --- continue training model ---
+                with open(checkpoint_path, 'rb') as handle:
+                    model = pickle.load(handle)
+            else:
+
+                # --- make dir ---
+                try:
+                    os.mkdir(checkpoint_path)
+                except Exception as e:
+                    pass
+
+                # --- create new warm start model ---
+                model = tpot.TPOTRegressor(
+                    generations=TPOT_GENERATIONS,
+                    population_size=TPOT_POPULATION_SIZE,
+                    # use_dask=True,
+                    verbosity=2,
+                    n_jobs=WORKERS,
+                    cv=CV_FOLDS,
+                    # crossover_rate=0.5,
+                    # mutation_rate=0.5,
+                    max_eval_time_mins=10,
+                    config_dict=TPOT_CONFIG_DICT,
+                    max_time_mins=TPOT_TIMEOUT_MINS,
+                    warm_start=True,
+                    periodic_checkpoint_folder=checkpoint_path
+                )
+        else:
+
+            # --- model without warm start ---
+            model = tpot.TPOTRegressor(
+                    generations=TPOT_GENERATIONS,
+                    population_size=TPOT_POPULATION_SIZE,
+                    use_dask=True,
+                    verbosity=2,
+                    n_jobs=WORKERS,
+                    cv=CV_FOLDS,
+                    config_dict=TPOT_CONFIG_DICT,
+                    max_time_mins=TPOT_TIMEOUT_MINS,
+                )
 
     # --- Subset y ---
     y_train = np.array(y_train_all[y_col])
@@ -201,6 +233,8 @@ for y_col in ML_Y_COLS:
             divisor = 365
         elif TS_FREQUENCY in ['A','AS']:
             divisior = 1
+        elif TS_FREQUENCY == '3D':
+            divisior = 356/3
         else:
             raise NotImplementedError(f'Please write a wrapper for {TS_FREQUENCY}!')
         train_out_df[f"exo_{y_col}_factor_mwh"] = train_out_df[f"pred_{y_col}"] / (train_out_df['estimated_generation_gwh'] * 1000 / divisor)

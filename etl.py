@@ -77,9 +77,8 @@ def main():
     df.to_pickle(os.path.join('processed','pre_ee.pkl'))
 
     # --- Load Google Earth Engine Data using df for dates ---
-    for earthengine_db in EARTHENGINE_DBS:
-        EeFetch = tycho.EarthEngineFetcher(earthengine_db, buffers=BUFFERS)
-        EeFetch.fetch(df)
+    EeFetch = tycho.EarthEngineFetcher()
+    EeFetch.fetch(df)
 
     # --- Merge Remote Sensing (Earth Engine) Data onto df ---
     RemoteMerge = tycho.RemoteDataMerger()

@@ -56,7 +56,7 @@ class TrainingDataMerger():
     self.df - merged GeoDataFrame
     """
     def __init__(self, eightsixty, gppd, cems,
-                 match_distance_thresh=0.01):
+                 match_distance_thresh=config.DEGREES_DISTANCE_MATCH):
 
         log.info('\n')
         log.info('Initializing TrainingDataMerger')

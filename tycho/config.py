@@ -13,18 +13,18 @@ import tycho.tpot_custom_configs as tpot_configs
 # --- Number of generators for training set ---
 #   - most downloads are cached, so if you set a higher number, 
 #     and then a lower, you don't lose data.
-N_GENERATORS = None
+N_GENERATORS = 250
 
 # --- Multiprocessing settings ---
 MULTIPROCESSING = True
 WORKERS = 12
-THREADS = 6 #ThreadPoolExecutor is failing for Earth Engine queries, so this is still using ProcessPool
+THREADS = 12 #ThreadPoolExecutor is failing for Earth Engine queries, so this is still using ProcessPool
 
 # --- Bool for detailed output ---
 VERBOSE = False
 
 # --- Frequency of observations (i.e. 'D' for daily, 'W', for weekly, 'M' for monthly, 'A' for annual) --- 
-TS_FREQUENCY = 'W-SUN'
+TS_FREQUENCY = '3D'
 
 TRAIN_COUNTRIES = ['United States of America']
 PREDICT_COUNTRIES = ['Puerto Rico']
@@ -38,21 +38,25 @@ PREDICT_END_DATE = '03-01-2020'
 
 # --- Sources ---
 EARTHENGINE_DBS = [
+    "COPERNICUS/S5P/OFFL/L3_CLOUD",
     "COPERNICUS/S5P/OFFL/L3_NO2",
     "COPERNICUS/S5P/OFFL/L3_SO2",
-    # "COPERNICUS/S5P/OFFL/L3_CO",
-    # "COPERNICUS/S5P/OFFL/L3_HCHO",
-    # "COPERNICUS/S5P/OFFL/L3_O3",
+    "COPERNICUS/S5P/OFFL/L3_CO",
+    "COPERNICUS/S5P/OFFL/L3_HCHO",
+    "COPERNICUS/S5P/OFFL/L3_O3",
     "CIESIN/GPWv411/GPW_Population_Count",
     "ECMWF/ERA5/DAILY"
 ]
 
 # --- API Query settings ---
-EE_TIMEOUT = 10 #forced timeout, overriding exponential backoff before calling a API query nans
+EE_TIMEOUT = 120 #forced timeout, overriding exponential backoff before calling a API query nans
 RETRY_EE_NANS = True #after loading cache, retry queries that returned nans in last call
 
 # --- Scale (in meters) to query ---
-BUFFERS = [1e3, 1e4, 1e5] #1e2, 1e4
+BUFFERS = [2000] #1e2, 1e4
+
+# --- Degrees to match GPPD and EIA dataframes ---
+DEGREES_DISTANCE_MATCH = 0.01
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~ SANITIZE/SPLIT SETTINGS ~~~~~~~~~~
@@ -70,7 +74,7 @@ CEMS_Y_COLS = [ #LEAKAGE WARNING! Removing something from this list will cause i
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~~~ ML SETTINGS ~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-HOW_TO_SPLIT = 0.75 #train/test split by fraction or list of countries/states
+HOW_TO_SPLIT = 0.7 #train/test split by fraction or list of countries/states
 TRAIN_MODEL = 'tpot'
 PREDICT_MODEL = 'tpot'
 ML_Y_COLS = ['gross_load_mw','so2_lbs','nox_lbs','co2_lbs']
@@ -93,7 +97,8 @@ XGB_PARAMS = {
 RANDOMSEARCH_ITER = 50
 
 # --- Params for TPOT Training ---
-TPOT_GENERATIONS = 100
-TPOT_POPULATION_SIZE = 100
+TPOT_GENERATIONS = 50
+TPOT_POPULATION_SIZE = 50
 TPOT_TIMEOUT_MINS = 60*24
-TPOT_CONFIG_DICT = None #None #tpot_configs.regressor_config_decision_tree #'TPOT Light'
+TPOT_CONFIG_DICT = tpot_configs.decission_tree_config_dict
+TPOT_WARM_START = True

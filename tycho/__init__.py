@@ -14,6 +14,7 @@ import pandas as pd
 # --- Module Imports ---
 from tycho.config import *
 import tycho.helper
+from tycho.helper import LowMemoryMinMaxScaler
 from tycho.fetcher import EPACEMSFetcher, EarthEngineFetcher
 from tycho.loader import PUDLLoader, CEMSLoader, GPPDLoader
 from tycho.merger import TrainingDataMerger, RemoteDataMerger

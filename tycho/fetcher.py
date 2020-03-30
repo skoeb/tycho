@@ -13,6 +13,7 @@ import json
 import itertools
 import random
 import pickle
+import hashlib
 
 # --- External Libraries ---
 import pandas as pd
@@ -86,11 +87,13 @@ class EPACEMSFetcher():
         self.download_path = download_path
         self.years=years
     
+
     def _connect_to_ftp(self):
         self.ftp = ftplib.FTP(self.server)
         self.ftp.login()
         log.info('....connected to EPA CEMS FTP Server')
         return self
+    
     
     def _cwd_annual(self, year):
         year_server_dir = self.server_dir + str(year) + '/'
@@ -99,6 +102,7 @@ class EPACEMSFetcher():
         log.info('........downloaded file list from EPA CEMS FTP Server')
         return files
     
+
     def _already_downloaded(self, files):
         """Check what is already downloaded and skip it."""
         downloaded = os.listdir(self.download_path)
@@ -162,20 +166,21 @@ class EarthEngineFetcher():
     ----------
     """
     
-    def __init__(self, earthengine_db='COPERNICUS/S5P/OFFL/L3_NO2',
+    def __init__(self, earthengine_dbs=config.EARTHENGINE_DBS,
                  agg_func='mean',
-                 scale=50, tilescale=16,
-                 buffers=[1e2, 1e3, 1e4, 1e5],
+                 scale=1000, tilescale=16,
+                 buffers=config.BUFFERS,
                  id_col='plant_id_wri',
                  geo_col='geometry',
                  date_col='datetime_utc',
                  ts_frequency=config.TS_FREQUENCY,
+                 percentiles = [10,25,50,75,90],
                  read_cache=True, use_cache=True):
 
         log.info('\n')
         log.info('Initializing EarthEngineFetcher')
 
-        self.earthengine_db = earthengine_db
+        self.earthengine_dbs = earthengine_dbs
         self.agg_func = agg_func
         self.tilescale = tilescale
         self.scale = scale
@@ -183,42 +188,11 @@ class EarthEngineFetcher():
         self.read_cache = read_cache
         self.use_cache = use_cache
         self.ts_frequency = ts_frequency
+        self.percentiles = percentiles
         
         self.id_col=id_col
         self.geo_col=geo_col
         self.date_col=date_col
-
-        
-    def _load_image(self, date):
-        """Load Earth Edge image."""
-
-        # --- Make dates strings so google is happy ---
-        start_date = date #.strftime('%m-%d-%Y')
-
-        if self.ts_frequency == 'D':
-            next_date = (pd.Timestamp(date) + pd.tseries.offsets.DateOffset(days=1)) #.strftime('%m-%d-%Y') #TODO: implement frequency keyword here 
-        elif self.ts_frequency == 'W-SUN':
-            next_date = (pd.Timestamp(date) + pd.tseries.offsets.DateOffset(weeks=1)) #.strftime('%m-%d-%Y') #TODO: implement frequency keyword here 
-        elif self.ts_frequency in ['A','AS']:
-            next_date = (pd.Timestamp(date) + pd.tseries.offsets.DateOffset(years=1)) #.strftime('%m-%d-%Y') #TODO: implement frequency keyword here 
-        elif self.ts_frequency in ['MS']:
-            next_date = (pd.Timestamp(date) + pd.tseries.offsets.DateOffset(months=1)) #.strftime('%m-%d-%Y') #TODO: implement frequency keyword here 
-        # --- Load Image and add as layer ---
-        imagecollection = ee.ImageCollection(self.earthengine_db)
-
-        # --- Select date or population count ---
-        if self.earthengine_db == "CIESIN/GPWv411/GPW_Population_Count":
-            date_agg = imagecollection.select('population_count')
-        else:
-            date_agg = imagecollection.filterDate(start_date, next_date)
-
-        if self.agg_func == 'median':
-            image = date_agg.median()
-        elif self.agg_func == 'mean':
-            image = date_agg.mean()
-        else:
-            raise NotImplementedError(f"please write a wrapper for {self.agg_func}!")
-        return image
 
 
     def _load_geometry(self, geometry, buffer):
@@ -229,7 +203,7 @@ class EarthEngineFetcher():
         return geometry
 
     
-    def _calc_geography_mean(self, date_agg, geometry, buffer):
+    def _calc_geography(self, row, geometry):
         """
         Compute Aggregation.
 
@@ -245,15 +219,155 @@ class EarthEngineFetcher():
         dict - keys are bands, values are the mean for that buffer size. 
         """
 
-        average_dict = date_agg.reduceRegion(**{
-          'reducer': ee.Reducer.mean(),
+        buffer = row['buffer']
+        start_date = row[self.date_col] #.strftime('%m-%d-%Y')
+
+        if self.ts_frequency == 'D':
+            next_date = (pd.Timestamp(start_date) + pd.tseries.offsets.DateOffset(days=1)) #.strftime('%m-%d-%Y') #TODO: implement frequency keyword here 
+        elif self.ts_frequency == 'W-SUN':
+            next_date = (pd.Timestamp(start_date) + pd.tseries.offsets.DateOffset(weeks=1)) #.strftime('%m-%d-%Y') #TODO: implement frequency keyword here 
+        elif self.ts_frequency in ['A','AS']:
+            next_date = (pd.Timestamp(start_date) + pd.tseries.offsets.DateOffset(years=1)) #.strftime('%m-%d-%Y') #TODO: implement frequency keyword here 
+        elif self.ts_frequency in ['MS']:
+            next_date = (pd.Timestamp(start_date) + pd.tseries.offsets.DateOffset(months=1)) #.strftime('%m-%d-%Y') #TODO: implement frequency keyword here 
+        elif self.ts_frequency == '3D':
+            next_date = (pd.Timestamp(start_date) + pd.tseries.offsets.DateOffset(days=3)) #.strftime('%m-%d-%Y') #TODO: implement frequency keyword here 
+
+        # -- Make a date filter to get images in this date range. --
+        dateFilter = ee.Filter.date(start_date, next_date)
+
+        # --- Specify an equals filter for image timestamps. ---
+        filterTimeEq = ee.Filter.equals(** {
+            'leftField': 'system:time_start',
+            'rightField': 'system:time_start'
+            })
+        
+        for ix, db in enumerate(self.earthengine_dbs):
+
+            if db == "CIESIN/GPWv411/GPW_Population_Count":
+                pass
+
+            elif db == "ECMWF/ERA5/DAILY":
+                pass
+            
+            elif ix == 0:
+                ic = ee.ImageCollection(db)
+            
+            else:
+                # --- Define the new data ---
+                _new = ee.ImageCollection(db).filter(dateFilter)
+
+                # --- Define an inner join. ---
+                innerJoin = ee.Join.inner()
+
+                # --- Apply the join. ---
+                ic = innerJoin.apply(ic, _new, filterTimeEq)
+                
+                # --- flatten ---
+                ic = ic.map(lambda feature: ee.Image.cat(feature.get('primary'), feature.get('secondary')))
+                ic = ee.ImageCollection(ic)
+
+        # --- select only the bands we want---
+        keep = []
+        if "COPERNICUS/S5P/OFFL/L3_CLOUD" in self.earthengine_dbs:
+            keep += ['cloud_fraction','cloud_top_pressure',
+                     'cloud_base_height','cloud_top_height',
+                     'cloud_optical_depth','surface_albedo']
+
+        if "COPERNICUS/S5P/OFFL/L3_NO2" in self.earthengine_dbs:
+            keep += ['NO2_column_number_density','tropospheric_NO2_column_number_density',
+                    'stratospheric_NO2_column_number_density','NO2_slant_column_number_density',
+                    'tropopause_pressure','absorbing_aerosol_index']
+
+        if "COPERNICUS/S5P/OFFL/L3_SO2" in self.earthengine_dbs:
+            keep += ['SO2_column_number_density','SO2_column_number_density_amf',
+                     'SO2_slant_column_number_density']
+
+        if "COPERNICUS/S5P/OFFL/L3_CO" in self.earthengine_dbs:
+            keep += ['CO_column_number_density','H2O_column_number_density']
+
+        if "COPERNICUS/S5P/OFFL/L3_HCHO" in self.earthengine_dbs:
+            keep += ['tropospheric_HCHO_column_number_density',
+                     'tropospheric_HCHO_column_number_density_amf',
+                     'HCHO_slant_column_number_density']
+
+        if "COPERNICUS/S5P/OFFL/L3_O3" in self.earthengine_dbs:
+            keep += ['O3_column_number_density','O3_effective_temperature']
+
+        if "COPERNICUS/S5P/OFFL/L3_CH4" in self.earthengine_dbs:
+            keep += ['CH4_column_volume_mixing_ratio_dry_air','aerosol_height',
+                     'aerosol_optical_depth']
+
+        ic = ic.select(keep)
+
+        # --- Aggregate image collection into an image ---
+        if self.agg_func == 'median':
+            image = ic.median()
+        elif self.agg_func == 'mean':
+            image = ic.mean()
+        else:
+            raise NotImplementedError(f"please write a wrapper for {self.agg_func}!")
+        
+        # --- Reduce ---
+        pct_dict = image.reduceRegion(**{
+            'reducer': ee.Reducer.percentile(self.percentiles),
+            'geometry':geometry,
+            'scale': self.scale,
+            'bestEffort':True,
+            'tileScale':self.tilescale
+        })
+
+        std_dict = image.reduceRegion(**{
+          'reducer': ee.Reducer.stdDev(),
           'geometry':geometry,
           'scale': self.scale,
           'bestEffort':True,
-        #   'tileScale':self.tilescale
+          'tileScale':self.tilescale
         })
-        average_dict = average_dict.getInfo()
-        return average_dict
+
+        # --- make queries ---
+        pct_dict = pct_dict.getInfo()
+        std_dict = std_dict.getInfo()
+
+        # --- Get population attributes seperately ---
+        if "CIESIN/GPWv411/GPW_Population_Count" in self.earthengine_dbs:
+            pop_ic = ee.ImageCollection("CIESIN/GPWv411/GPW_Population_Count")
+            pop_ic = pop_ic.select('population_count')
+            pop_ic = pop_ic.mean()
+            pop_dict = pop_ic.reduceRegion(**{
+                'reducer': ee.Reducer.sum(),
+                'geometry':geometry,
+                'scale': self.scale,
+                'bestEffort':True,
+                'tileScale':self.tilescale
+                })
+            pop_dict = pop_dict.getInfo()
+        else:
+            pop_dict = {}
+
+        # --- Get weather seperately ---
+        if "ECMWF/ERA5/DAILY" in self.earthengine_dbs:
+            weath_ic = ee.ImageCollection("ECMWF/ERA5/DAILY")
+            weath_ic = weath_ic.filter(dateFilter)
+            weath_ic = weath_ic.mean()
+            weath_dict = weath_ic.reduceRegion(**{
+                'reducer': ee.Reducer.sum(),
+                'geometry':geometry,
+                'scale': self.scale,
+                'bestEffort':True,
+                'tileScale':self.tilescale
+                })
+            weath_dict = weath_dict.getInfo()
+        else:
+            weath_dict = {}
+
+        # --- rename features ---
+        std_dict = {f"{k}_std":v for k,v in std_dict.items()}
+
+        # --- merge ---
+        out_dict = {**pct_dict, **std_dict, **pop_dict, **weath_dict}
+
+        return out_dict
     
     
     def _worker(self, row):
@@ -262,10 +376,10 @@ class EarthEngineFetcher():
             with helper.timeout(config.EE_TIMEOUT): #wrapped in a timeout as I can't figure out how to modify ee's exponential backoff
                 ee.Initialize()
                 geometry = self._load_geometry(row[self.geo_col], row['buffer'])
-                date_agg = self._load_image(row[self.date_col])
 
                 # --- Download results and add identifier features ---
-                result = self._calc_geography_mean(date_agg, geometry, row['buffer'])
+
+                result = self._calc_geography(row, geometry)
                 result[self.id_col] = row[self.id_col]
                 result[self.geo_col] = row[self.geo_col]
                 result[self.date_col] = row[self.date_col]
@@ -326,19 +440,19 @@ class EarthEngineFetcher():
         """Top-level function."""
 
         # --- Construct output path ---
-        infered_freq = config.TS_FREQUENCY
-        # infered_freq = pd.infer_freq(pd.to_datetime(pd.Series(list(set(df[self.date_col])))).sort_values())
-        db_clean = self.earthengine_db.replace('/','-')
-        buffers_clean = '-'.join([str(i) for i in self.buffers])
         self.cache_dir = os.path.join('data', 'earthengine')
         
         # --- break up by month ---
         df['month'] = [i.month for i in df['datetime_utc']]
         months = list(set(df['month']))
         sorted(months)
+
+        # --- create hash of dbs to query ---
+        db_string = ''.join(list(sorted(self.earthengine_dbs)))
+        db_hash = int(hashlib.sha1(str.encode(db_string)).hexdigest(), 16) % (10 ** 8)
         
         for m in months:
-            cache_month_path =  os.path.join(self.cache_dir, f"{db_clean}#agg{infered_freq}#{m}.pkl")
+            cache_month_path =  os.path.join(self.cache_dir, f"hash{db_hash}#agg{self.ts_frequency}#{m}.pkl")
             
             # --- See what is requested for the given month ---
             month_df = df.loc[df['month'] == m]

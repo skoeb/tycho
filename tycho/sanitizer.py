@@ -84,6 +84,7 @@ class OneHotEncodeWithThresh(TransformerMixin):
         return self
     
     def transform(self, X):
+        import pdb; pdb.set_trace()
         log.info(f'....starting OneHotEncodeWithThresh, shape {X.shape}')
         Xt = pd.get_dummies(X, columns=self.categorical_cols)
 

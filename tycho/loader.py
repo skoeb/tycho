@@ -82,20 +82,6 @@ class CEMSLoader():
         self.years = years
         self.dir_path = os.path.join('data','CEMS','csvs')
         self.clean_on_load = clean_on_load
-
-        if self.ts_frequency == 'H':
-            self.ts_expected_count = 8760
-        elif self.ts_frequency == 'D':
-            self.ts_expected_count = 365
-        elif self.ts_frequency == 'W-SUN':
-            self.ts_expected_count = 52
-        elif self.ts_frequency in ['A','AS']:
-            self.ts_expected_count = 1
-        elif self.ts_frequency in ['MS']:
-            self.ts_expected_count = 12
-        else:
-            raise NotImplementedError('Please write a wrapper for {}'.format(self.ts_frequency))
-        
         self.use_pickle = use_pickle
         years_clean = [str(i) for i in years]
         years_clean = '-'.join(years_clean) #save as seperate caches
@@ -116,13 +102,13 @@ class CEMSLoader():
             year_files += [i for i in files if str(y) in i]
         
         to_concat = []
-        ten_percent = max(1, int(len(files)*0.1))
+        checkpoint = max(1, int(len(files)*0.1))
         done = 0
         for f in files:
             _df = pd.read_csv(os.path.join(self.dir_path, f), low_memory=False)
             to_concat.append(_df)
             done +=1
-            if done % ten_percent == 0:
+            if done % checkpoint == 0:
                 log.info(f"........finished loading {done}/{len(files)} csvs")
             
         # --- Convert to dataframe ---
@@ -132,7 +118,7 @@ class CEMSLoader():
         return self
     
     def _clean_cems(self):
-        
+        log.info(f"........postprocessing CEMS, len: {len(self.cems)}")
         rename_dict = {
             'STATE':'state',
             'ORISPL_CODE':'plant_id_eia',
@@ -170,14 +156,9 @@ class CEMSLoader():
         self.cems = self.cems.groupby('plant_id_eia').resample(self.ts_frequency, on='datetime_utc').sum() #TODO: check how resampling works
         self.cems.drop(['plant_id_eia'], axis='columns', inplace=True, errors='ignore') #duplicated by resample
         self.cems.reset_index(inplace=True, drop=False)
-        
-        # --- fill nans with zeros---
-        self.cems = self.cems.fillna(0)
-        
-        # --- drop plants with a large number of zeros ---
-        self.cems = self.cems.loc[self.cems.groupby('plant_id_eia')['nox_lbs'].filter(lambda x: len(x[x > 0]) > 0).index]
-        self.cems = self.cems.loc[self.cems.groupby('plant_id_eia')['so2_lbs'].filter(lambda x: len(x[x > 0]) > 0).index]
-        self.cems = self.cems.loc[self.cems.groupby('plant_id_eia')['co2_tons'].filter(lambda x: len(x[x > 0]) > 0).index]
+
+        # --- Drop rows with no gross load (causing division by 0 error) ---
+        self.cems = self.cems.loc[self.cems['gross_load_mw'] > 0]
         
         # --- Drop unnecessary columns ---
         keep = ['datetime_utc','plant_id_eia',
@@ -191,13 +172,7 @@ class CEMSLoader():
         
         # --- reduce size ---
         self.cems = helper.memory_downcaster(self.cems)
-        
-        log.info(f"........postprocessing CEMS, len: {len(self.cems)}")
-        # --- drop plants without a full year of data ---
-        plant_id_eias_keep = list(set(self.cems.groupby('plant_id_eia', as_index=False)['plant_id_eia'].filter(lambda x: x.count() >= self.ts_expected_count*0.9)))
-        self.cems = self.cems.loc[self.cems['plant_id_eia'].isin(plant_id_eias_keep)]
-        log.info(f"........droping generators without a full year of data, len: {len(self.cems)}")
-        
+
         # --- reset index ---
         self.cems.reset_index(drop=True, inplace=True)
         

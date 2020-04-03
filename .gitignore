@@ -3,8 +3,10 @@
 
 data/CEMS/csvs/*.zip
 logs/*.txt
+models/tpot/checkpoints/*
+!*.gitkeep
 
 .ipynb_checkpoints
 .vscode
 __pycache__
-*/__pycache__
+*/__pycache__/*

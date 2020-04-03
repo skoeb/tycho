@@ -13,7 +13,7 @@ import tycho.tpot_custom_configs as tpot_configs
 # --- Number of generators for training set ---
 #   - most downloads are cached, so if you set a higher number, 
 #     and then a lower, you don't lose data.
-N_GENERATORS = 250
+N_GENERATORS = 1000
 
 # --- Multiprocessing settings ---
 MULTIPROCESSING = True
@@ -24,7 +24,7 @@ THREADS = 12 #ThreadPoolExecutor is failing for Earth Engine queries, so this is
 VERBOSE = False
 
 # --- Frequency of observations (i.e. 'D' for daily, 'W', for weekly, 'M' for monthly, 'A' for annual) --- 
-TS_FREQUENCY = '3D'
+TS_FREQUENCY = '2D'
 
 TRAIN_COUNTRIES = ['United States of America']
 PREDICT_COUNTRIES = ['Puerto Rico']
@@ -53,7 +53,7 @@ EE_TIMEOUT = 120 #forced timeout, overriding exponential backoff before calling 
 RETRY_EE_NANS = True #after loading cache, retry queries that returned nans in last call
 
 # --- Scale (in meters) to query ---
-BUFFERS = [2000] #1e2, 1e4
+BUFFERS = [8000] #1e2, 1e4
 
 # --- Degrees to match GPPD and EIA dataframes ---
 DEGREES_DISTANCE_MATCH = 0.01
@@ -100,5 +100,5 @@ RANDOMSEARCH_ITER = 50
 TPOT_GENERATIONS = 50
 TPOT_POPULATION_SIZE = 50
 TPOT_TIMEOUT_MINS = 60*24
-TPOT_CONFIG_DICT = tpot_configs.decission_tree_config_dict
+TPOT_CONFIG_DICT = tpot_configs.catboost_config_dict
 TPOT_WARM_START = True

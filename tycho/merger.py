@@ -13,6 +13,7 @@ import json
 import itertools
 import random
 import pickle
+import hashlib
 
 # --- External Libraries ---
 import pandas as pd
@@ -257,22 +258,28 @@ class RemoteDataMerger():
                 earthengine_dbs=config.EARTHENGINE_DBS,
                 buffers=config.BUFFERS,
                 ts_frequency=config.TS_FREQUENCY):
-        self.earthengine_dbs = [i.replace('/','-') for i in earthengine_dbs]
+        self.earthengine_dbs = earthengine_dbs
         self.buffers = buffers
         self.ts_frequency = ts_frequency
 
         self.pickle_path = os.path.join('data','earthengine')
     
     def _read_pickles(self):
+
+        # --- create hash of dbs to query ---
+        db_string = ''.join(list(sorted(self.earthengine_dbs)))
+        db_hash = int(hashlib.sha1(str.encode(db_string)).hexdigest(), 16) % (10 ** 8)
+        db_hash = 'hash' + str(db_hash)
+
         files = os.listdir(self.pickle_path)  
         self.clean_files = []
         # --- find out which files to read in --
         for f in files:
             if '#' in f:
-                db, ts, m = f.split('#')
+                h, ts, m = f.split('#')
                 ts = ts.replace('agg', '')
                 if ts == self.ts_frequency:
-                    if db in self.earthengine_dbs:
+                    if h == db_hash:
                         self.clean_files.append(f) 
 
         # --- read files and concat ---

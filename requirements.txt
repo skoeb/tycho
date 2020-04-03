@@ -1,4 +1,4 @@
-python==3.8
+python
 
 earthengine-api
 
@@ -17,6 +17,7 @@ pandas
 scikit-learn
 tpot
 xgboost
+catboost
 
 dask
 dask-ml

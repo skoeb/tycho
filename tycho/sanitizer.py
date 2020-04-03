@@ -84,7 +84,6 @@ class OneHotEncodeWithThresh(TransformerMixin):
         return self
     
     def transform(self, X):
-        import pdb; pdb.set_trace()
         log.info(f'....starting OneHotEncodeWithThresh, shape {X.shape}')
         Xt = pd.get_dummies(X, columns=self.categorical_cols)
 
@@ -92,6 +91,9 @@ class OneHotEncodeWithThresh(TransformerMixin):
         for c in self.dummy_cols:
             if c not in Xt.columns:
                 Xt[c] = 0
+        
+        # --- drop any extra columns ---
+        Xt = Xt[self.dummy_cols]
         
         # --- force column order ---
         Xt= Xt.reindex(sorted(Xt.columns), axis=1)

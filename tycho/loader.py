@@ -194,7 +194,7 @@ class CEMSLoader():
             # --- Save pickle ---
             if self.use_pickle:
                 log.info('....saving CEMS to pickle')
-                self.cems.to_pickle(self.pkl_path)
+                self.cems.to_pickle(self.pkl_path, protocol=4)
                 # --- Out ---
         
         if self.save_pickle:

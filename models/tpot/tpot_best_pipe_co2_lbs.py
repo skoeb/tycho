@@ -3,9 +3,8 @@ import pandas as pd
 from sklearn.feature_selection import SelectPercentile, f_regression
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import MinMaxScaler, PolynomialFeatures
-from sklearn.tree import DecisionTreeRegressor
-from tpot.builtins import OneHotEncoder
+from sklearn.preprocessing import RobustScaler
+from xgboost import XGBRegressor
 
 # NOTE: Make sure that the outcome column is labeled 'target' in the data file
 tpot_data = pd.read_csv('PATH/TO/DATA/FILE', sep='COLUMN_SEPARATOR', dtype=np.float64)
@@ -13,14 +12,11 @@ features = tpot_data.drop('target', axis=1)
 training_features, testing_features, training_target, testing_target = \
             train_test_split(features, tpot_data['target'], random_state=None)
 
-# Average CV score on the training set was: -1221126711213421.8
+# Average CV score on the training set was: -59088461365248.0
 exported_pipeline = make_pipeline(
-    SelectPercentile(score_func=f_regression, percentile=42),
-    MinMaxScaler(),
-    PolynomialFeatures(degree=2, include_bias=False, interaction_only=False),
-    SelectPercentile(score_func=f_regression, percentile=42),
-    OneHotEncoder(minimum_fraction=0.2, sparse=False, threshold=10),
-    DecisionTreeRegressor(ccp_alpha=0.001, criterion="mse", max_depth=10, max_features=32, min_samples_leaf=3, min_samples_split=16)
+    RobustScaler(),
+    SelectPercentile(score_func=f_regression, percentile=15),
+    XGBRegressor(colsample_bytree=0.55, gamma=0.93, learning_rate=0.1, max_depth=8, min_child_weight=9, n_estimators=125, nthread=12, objective="reg:squarederror", reg_alpha=17, reg_lambda=27, subsample=0.75)
 )
 
 exported_pipeline.fit(training_features, training_target)

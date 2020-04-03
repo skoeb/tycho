@@ -130,7 +130,7 @@ def plot_corr_heatmap(df, cems_y_cols=config.CEMS_Y_COLS):
     # --- Initialize Axes ---
     sns.set(style="white")
     fig, (ax1, ax2, ax3) = plt.subplots(nrows=1, ncols=3, dpi=200,
-                                        figsize=(9,18))
+                                        figsize=(9,60))
     
     # --- Loop through fuels ---
     for f, ax in zip(['Coal','Gas','Oil'], [ax1, ax2, ax3]):

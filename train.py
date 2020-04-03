@@ -28,6 +28,9 @@ from sklearn.linear_model import LinearRegression
 from sklearn.decomposition import PCA
 from sklearn.feature_selection import SelectPercentile, SelectFwe, f_regression
 import tpot
+from sklearn.base import RegressorMixin
+from catboost import CatBoostRegressor
+CatBoostRegressor.__bases__ += (RegressorMixin,)
 
 # --- Module Imports ---
 import tycho
@@ -154,7 +157,7 @@ for y_col in ML_Y_COLS:
                     population_size=TPOT_POPULATION_SIZE,
                     # use_dask=True,
                     verbosity=2,
-                    n_jobs=WORKERS,
+                    n_jobs=1,
                     cv=CV_FOLDS,
                     # crossover_rate=0.5,
                     # mutation_rate=0.5,
@@ -172,7 +175,7 @@ for y_col in ML_Y_COLS:
                     population_size=TPOT_POPULATION_SIZE,
                     use_dask=True,
                     verbosity=2,
-                    n_jobs=WORKERS,
+                    n_jobs=1,
                     cv=CV_FOLDS,
                     config_dict=TPOT_CONFIG_DICT,
                     max_time_mins=TPOT_TIMEOUT_MINS,
@@ -233,8 +236,10 @@ for y_col in ML_Y_COLS:
             divisor = 365
         elif TS_FREQUENCY in ['A','AS']:
             divisior = 1
-        elif TS_FREQUENCY == '3D':
+        elif TS_FREQUENCY == '2D':
             divisior = 356/3
+        elif TS_FREQUENCY == '2D':
+            divisor = int(365 / 3)
         else:
             raise NotImplementedError(f'Please write a wrapper for {TS_FREQUENCY}!')
         train_out_df[f"exo_{y_col}_factor_mwh"] = train_out_df[f"pred_{y_col}"] / (train_out_df['estimated_generation_gwh'] * 1000 / divisor)

@@ -103,6 +103,8 @@ for y_col in ML_Y_COLS:
             divisior = 1
         elif TS_FREQUENCY == '3D':
             divisor = int(365 / 3)
+        elif TS_FREQUENCY == '2D':
+            divisor = int(365 / 2)
         else:
             raise NotImplementedError(f'Please write a wrapper for {TS_FREQUENCY}!')
         pred_out_df[f"exo_{y_col}_factor_mwh"] = pred_out_df[f"pred_{y_col}"] / (pred_out_df['estimated_generation_gwh'] * 1000 / divisor)

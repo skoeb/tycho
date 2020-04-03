@@ -1,11 +1,10 @@
 import numpy as np
 import pandas as pd
-from sklearn.feature_selection import SelectFwe, SelectPercentile, f_regression
+from sklearn.feature_selection import SelectFwe, VarianceThreshold, f_regression
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import make_pipeline, make_union
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.tree import DecisionTreeRegressor
 from tpot.builtins import StackingEstimator
+from xgboost import XGBRegressor
 
 # NOTE: Make sure that the outcome column is labeled 'target' in the data file
 tpot_data = pd.read_csv('PATH/TO/DATA/FILE', sep='COLUMN_SEPARATOR', dtype=np.float64)
@@ -13,13 +12,12 @@ features = tpot_data.drop('target', axis=1)
 training_features, testing_features, training_target, testing_target = \
             train_test_split(features, tpot_data['target'], random_state=None)
 
-# Average CV score on the training set was: -656322543.9634379
+# Average CV score on the training set was: -16061314.2
 exported_pipeline = make_pipeline(
-    SelectPercentile(score_func=f_regression, percentile=19),
-    SelectFwe(score_func=f_regression, alpha=0.013000000000000001),
-    StackingEstimator(estimator=DecisionTreeRegressor(ccp_alpha=0, criterion="mae", max_depth=10, max_features=8, min_samples_leaf=20, min_samples_split=13)),
-    MinMaxScaler(),
-    DecisionTreeRegressor(ccp_alpha=0, criterion="mse", max_depth=9, max_features=16, min_samples_leaf=2, min_samples_split=2)
+    SelectFwe(score_func=f_regression, alpha=0.01),
+    VarianceThreshold(threshold=0.01),
+    StackingEstimator(estimator=XGBRegressor(colsample_bytree=0.51, gamma=0.67, learning_rate=0.4, max_depth=6, min_child_weight=8, n_estimators=100, nthread=12, objective="reg:squarederror", reg_alpha=83, reg_lambda=91, subsample=0.3)),
+    XGBRegressor(colsample_bytree=0.28, gamma=0.77, learning_rate=0.2, max_depth=4, min_child_weight=9, n_estimators=75, nthread=12, objective="reg:squarederror", reg_alpha=60, reg_lambda=33, subsample=0.88)
 )
 
 exported_pipeline.fit(training_features, training_target)

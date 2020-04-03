@@ -232,6 +232,8 @@ class EarthEngineFetcher():
             next_date = (pd.Timestamp(start_date) + pd.tseries.offsets.DateOffset(months=1)) #.strftime('%m-%d-%Y') #TODO: implement frequency keyword here 
         elif self.ts_frequency == '3D':
             next_date = (pd.Timestamp(start_date) + pd.tseries.offsets.DateOffset(days=3)) #.strftime('%m-%d-%Y') #TODO: implement frequency keyword here 
+        elif self.ts_frequency == '2D':
+            next_date = (pd.Timestamp(start_date) + pd.tseries.offsets.DateOffset(days=2)) #.strftime('%m-%d-%Y') #TODO: implement frequency keyword here 
 
         # -- Make a date filter to get images in this date range. --
         dateFilter = ee.Filter.date(start_date, next_date)
@@ -399,7 +401,7 @@ class EarthEngineFetcher():
             return result
         
         # --- Sleep to avoid upsetting google ---
-        time.sleep(0.5)
+        time.sleep(0.1)
 
         return result
         

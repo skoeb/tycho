@@ -2,7 +2,7 @@ python
 
 earthengine-api
 
-shapely #install using pip before geopandas for GEOS
+shapely
 geopandas
 cartopy
 fiona
@@ -17,7 +17,7 @@ pandas
 scikit-learn
 tpot
 xgboost
-catboost
+lightgbm
 
 dask
 dask-ml

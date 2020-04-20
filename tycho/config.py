@@ -4,7 +4,15 @@ Created on Sat Mar  7 08:48:27 2020
 @author: SamKoebrich
 """
 
-import tycho.tpot_custom_configs as tpot_configs
+#TODO:
+# drop index column from train.py
+# plot training data against actual
+# 1 day earth engine, with 8PM offset?
+# try with CEMS observed plants only
+# test corr for lots of buffers for small number of plants (25?)
+# integrate linear regression
+# store data on google cloud and write function to pull?
+# make bokeh map
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~ GENERAL SETTINGS ~~~~~~~~~~~~~
@@ -13,7 +21,8 @@ import tycho.tpot_custom_configs as tpot_configs
 # --- Number of generators for training set ---
 #   - most downloads are cached, so if you set a higher number, 
 #     and then a lower, you don't lose data.
-N_GENERATORS = 1000
+RUN_PRE_EE = True
+N_GENERATORS = None
 
 # --- Multiprocessing settings ---
 MULTIPROCESSING = True
@@ -24,13 +33,29 @@ THREADS = 12 #ThreadPoolExecutor is failing for Earth Engine queries, so this is
 VERBOSE = False
 
 # --- Frequency of observations (i.e. 'D' for daily, 'W', for weekly, 'M' for monthly, 'A' for annual) --- 
-TS_FREQUENCY = '2D'
+TS_FREQUENCY = 'MS'
+if TS_FREQUENCY in ['W','W-SUN']:
+    TS_DIVISOR = 52
+elif TS_FREQUENCY in ['MS']:
+    TS_DIVISOR = 12
+elif TS_FREQUENCY in ['D']:
+    TS_DIVISOR = 365
+elif TS_FREQUENCY in ['A','AS']:
+    TS_DIVISOR = 1
+elif TS_FREQUENCY == '3D':
+    TS_DIVISOR = int(365 / 3)
+elif TS_FREQUENCY == '2D':
+    TS_DIVISOR = int(365 / 2)
+else:
+    raise NotImplementedError(f'Please write a wrapper for {TS_FREQUENCY}!')
 
 TRAIN_COUNTRIES = ['United States of America']
 PREDICT_COUNTRIES = ['Puerto Rico']
 
 PREDICT_START_DATE = '01-01-2019'
 PREDICT_END_DATE = '03-01-2020'
+
+CEMS_MEASUREMENT_FLAGS = ['Measured'] #blank for include everything
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~ EARTH ENGINE SETTINGS ~~~~~~~~~~
@@ -50,10 +75,13 @@ EARTHENGINE_DBS = [
 
 # --- API Query settings ---
 EE_TIMEOUT = 120 #forced timeout, overriding exponential backoff before calling a API query nans
-RETRY_EE_NANS = True #after loading cache, retry queries that returned nans in last call
+RETRY_EE_NANS = False #after loading cache, retry queries that returned nans in last call
 
 # --- Scale (in meters) to query ---
-BUFFERS = [8000] #1e2, 1e4
+BUFFERS = [20000] #1e2, 1e4
+
+# --- Hour to grab after --- (i.e. don't consider an observation unless it is after this hour)
+LEFT_WINDOW_HOUR = 20
 
 # --- Degrees to match GPPD and EIA dataframes ---
 DEGREES_DISTANCE_MATCH = 0.01
@@ -74,31 +102,21 @@ CEMS_Y_COLS = [ #LEAKAGE WARNING! Removing something from this list will cause i
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~~~ ML SETTINGS ~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-HOW_TO_SPLIT = 0.7 #train/test split by fraction or list of countries/states
-TRAIN_MODEL = 'tpot'
-PREDICT_MODEL = 'tpot'
+HOW_TO_SPLIT = 0.1 #test frac
+TRAIN_MODEL = 'bayes-lgbm'
+PREDICT_MODEL = 'bayes-lgbm'
 ML_Y_COLS = ['gross_load_mw','so2_lbs','nox_lbs','co2_lbs']
-# ML_Y_COLS = ['so2_lbs','nox_lbs']
-CV_FOLDS = 5
-
-# --- Grid search params for XGB Training ---
-XGB_PARAMS = {
-    'learning_rate': [0.1],
-    'estimators':[100],
-    'min_child_weight': [0, 1, 6, 8, 10],
-    'subsample': [0.6],
-    'max_depth': [8,9,10],
-    'gamma': [0.5, 1, 2, 5],
-    # 'colsample_bytree': [0.6, 0.8, 1.0],
-    # 'tree_method':['gpu_hist'],
-    # 'gpu_hist':[0],
-}
+CV_FOLDS = 3
 
 RANDOMSEARCH_ITER = 50
 
+# --- Params for Bayes training ---
+BAYES_N_ITER = 5
+BAYES_INIT_POINTS = 10
+BAYES_ACQ = 'ucb'
+
 # --- Params for TPOT Training ---
-TPOT_GENERATIONS = 50
-TPOT_POPULATION_SIZE = 50
+TPOT_GENERATIONS = 100
+TPOT_POPULATION_SIZE = 100
 TPOT_TIMEOUT_MINS = 60*24
-TPOT_CONFIG_DICT = tpot_configs.catboost_config_dict
-TPOT_WARM_START = True
+# TPOT_CONFIG_DICT = tpot_configs.lgbm_config_dict

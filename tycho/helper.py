@@ -22,8 +22,6 @@ import pandas as pd
 import numpy as np
 import geopandas as gpd
 from shapely.ops import nearest_points
-from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import ee
 
 # --- Module Imports ---
@@ -80,22 +78,6 @@ def memory_downcaster(df):
             df[col] = df[col].astype(np.float32)
             
     return df
-
-class LowMemoryMinMaxScaler(TransformerMixin):
-    def __init__(self, dtype='uint8'):
-        self.dtype = dtype
-        self.min_val = np.iinfo(self.dtype).min
-        self.max_val = np.iinfo(self.dtype).max
-        self.MinMax = MinMaxScaler(feature_range=(self.min_val, self.max_val))
-
-    def fit(self, X, y=None):
-        self.MinMax.fit(X, y)
-        return self
-
-    def transform(self, X, y=None):
-        Xt = self.MinMax.transform(X)
-        Xt = Xt.astype(self.dtype)
-        return Xt
 
 class timeout:
     def __init__(self, seconds=1, error_message='Timeout'):

@@ -17,6 +17,12 @@ html_obj = html.Div([
 
     # === Storage ===
     dcc.Store(id='filtered_df', storage_type='session'),
+    dcc.Store(id='var_df', storage_type='session'),
+    dcc.Store(id='plot_dt_df', storage_type='session'),
+    dcc.Store(id='plot_no_dt_df', storage_type='session'),
+    dcc.Store(id='plot_map_df', storage_type='session'),
+    dcc.Store(id='cf_df', storage_type='session'),
+    dcc.Store(id='emission_table_df', storage_type='session'),
 
     # ==== Title Bar ===
     html.Div([
@@ -25,7 +31,7 @@ html_obj = html.Div([
             
             # --- Title ---
             html.H1(
-                'Tycho',
+                'Tycho Viewer',
                 style={'font-family': 'Helvetica',
                         "margin-top": "25",
                         "margin-bottom": "0"},
@@ -121,7 +127,7 @@ html_obj = html.Div([
                     {'label': 'NOx lbs / MWh', 'value':'nox_lbs_ef_mwh'},
                     {'label': 'SO2 lbs / MWh', 'value':'so2_lbs_ef_mwh'},
                 ],
-                value='co2_lbs_ef_mwh'
+                value='nox_lbs'
             )
         ]), 
     
@@ -187,6 +193,77 @@ html_obj = html.Div([
             )
         ]), 
 
+        # --- Select Color Column ---
+        html.Div([
+            html.P('', style={'margin-top': 20}), #spacer
+            html.P('Select variable to color powerplants:', style={'display':'inline-block'}),
+
+            html.Div([
+                ' \u003f\u20dd',
+                html.Span("For plotting purposes, how is color chosen for multiple powerplants with shared attributes.",
+                className="tooltiptext")], className="tooltip", style={'padding-left':5}
+            ),
+
+            dcc.Dropdown(
+                id='selected_colorvar',
+                options=[
+                    {'label': 'Fuel Type', 'value':'primary_fuel'},
+                    {'label': 'Continent', 'value':'continent'},
+                    # {'label': 'Vintage Decade', 'value':'vintage'},
+                ],
+                value='primary_fuel'
+            )
+        ]), 
+
+        # --- Select Group Column ---
+        html.Div([
+            html.P('', style={'margin-top': 20}), #spacer
+            html.P('Select variable to group data in plots by:', style={'display':'inline-block'}),
+
+            html.Div([
+                ' \u003f\u20dd',
+                html.Span("For plotting purposes, how are multiple plants grouped together.",
+                className="tooltiptext")], className="tooltip", style={'padding-left':5}
+            ),
+
+            dcc.Dropdown(
+                id='selected_groupvar',
+                options=[
+                    {'label': 'Plant', 'value':'plant_id_wri'},
+                    {'label': 'Country', 'value':'country'},
+                    # {'label': 'Vintage Decade', 'value':'vintage'},
+                ],
+                value='country'
+            )
+        ]), 
+
+        # --- Filter outliers ---
+        html.Div([
+            html.P('', style={'margin-top': 20}), #spacer
+            html.P('Hide outliers X times over mean:', style={'display':'inline-block'}),
+
+            html.Div([
+                ' \u003f\u20dd',
+                html.Span("Some outliers can skew visualizations, while these outliers can be significant and often warrant investigation into either modelling performance or operating conditions, this slider allows you to remove outliers from the plots.",
+                className="tooltiptext")], className="tooltip", style={'padding-left':5}
+            ),
+
+            dcc.Slider(
+                id='selected_outlierthresh',
+                min=3,
+                max=30,
+                value=20,
+                step=1,
+                marks={
+                    3:{'label':'2', 'style': {'color': '#77b0b1'}},
+                    10:{'label':'10', 'style': {'color': '#77b0b1'}},
+                    20:{'label':'20', 'style': {'color': '#77b0b1'}},
+                    30:{'label':'30', 'style': {'color': '#77b0b1'}},
+                    },
+                tooltip={'placement':'topRight'})
+        ]), 
+
+
         # --- Select Endogenous / Exogenous ---
         html.Div([
             html.P('', style={'margin-top': 20}), #spacer
@@ -241,7 +318,103 @@ html_obj = html.Div([
 
     ],
     className='six columns'
-    )
+    ), # end of switches
+
+    # === Map ===
+    html.Div([
+        
+        html.Div([
+            dcc.Graph(id="bubble_map")
+        ],
+        className='six columns'
+        ),
+
+        html.Div([
+            html.P("Highest Emission Countries:", style={'display':'inline-block'}),
+
+            dash_table.DataTable(
+                id='country_emission_table',
+                columns=[{'name':i, 'id':i} for i in resources.country_emission_table.columns],
+                data=resources.country_emission_table.to_dict('records'),
+                # export_format = 'csv',
+                style_as_list_view=True,
+                style_cell={'font-family': 'Helvetica', 'font-size':'90%', 'textAlign':'center', 'maxWidth':120,'whiteSpace':'normal'},
+                style_data_conditional=[
+                        {
+                        'if': {'row_index':'odd'},
+                        'backgroundColor':'rgb(248, 248, 248)',
+                        }
+                    ],
+                style_header={
+                    'backgroundColor':'rgb(230, 230, 230)',
+                    'fontWeight': 'bold'
+                    },
+                page_size=10,
+                sort_action='native'
+            ),
+        ],
+        className='six columns'
+        ),
+    ]),
+
+
+    # === Line Graph ===
+    html.Div([
+        dcc.Graph(id="line_graph")
+    ],
+    className= 'twelve columns'
+    ),
+
+    # === Scatterplot / Hive Graph ===
+    html.Div([
+        
+        html.Div([
+            dcc.Graph(id="scatter_graph")
+        ],
+        className='six columns'
+        ),
+
+        html.Div([
+            dcc.Graph(id="violin_graph")
+        ],
+        className='six columns'
+        ),
+
+    ],
+    className= 'twelve columns'
+    ),
+
+    # === Tables ===
+    html.Div([
+
+        html.Div([
+            html.P("Highest Emission Generators:", style={'display':'inline-block'}),
+
+            dash_table.DataTable(
+                id='plant_emission_table',
+                columns=[{'name':i, 'id':i} for i in resources.plant_emission_table.columns],
+                data=resources.plant_emission_table.to_dict('records'),
+                # export_format = 'csv',
+                style_as_list_view=True,
+                style_cell={'font-family': 'Helvetica', 'font-size':'90%', 'textAlign':'center', 'maxWidth':120,'whiteSpace':'normal'},
+                style_data_conditional=[
+                        {
+                        'if': {'row_index':'odd'},
+                        'backgroundColor':'rgb(248, 248, 248)',
+                        }
+                    ],
+                style_header={
+                    'backgroundColor':'rgb(230, 230, 230)',
+                    'fontWeight': 'bold'
+                    },
+                page_size=10,
+                sort_action='native'
+            ),
+        ],
+        className='twelve columns'
+        ),
+
+    ])
 
 
 ]) #end of html

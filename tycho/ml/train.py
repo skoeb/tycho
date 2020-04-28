@@ -132,8 +132,8 @@ def train(save_pickles=True):
             lgbm_pbounds = {
                 # 'boosting':['gbdt','dart'],
                 # 'learning_rate': (0.01, 1.),
-                'n_estimators': (2, 2000),
-                # 'max_depth': (3, 12),
+                # 'n_estimators': (2, 2000),
+                'max_depth': (3, 12),
                 # 'min_child_weight': (0., 100.),
                 # 'min_data_in_leaf' : (1, 40),
                 'num_leaves': (2, 2000), # large num_leaves helps improve accuracy but might lead to over-fitting
@@ -142,20 +142,20 @@ def train(save_pickles=True):
                 'max_bin': (128, 10000), # large max_bin helps improve accuracy but might slow down training progress
                 # 'colsample_bytree' : (0.3,1),
                 # 'subsample' : (0.3, 1.),
-                'reg_alpha' : (0., 300.),
-                'reg_lambda' : (0., 300.),
+                # 'reg_alpha' : (0., 300.),
+                # 'reg_lambda' : (0., 300.),
             }
 
             model = tycho.BayesRegressor(estimator=estimator, pbounds=lgbm_pbounds)
 
         elif config.TRAIN_MODEL == 'bayes-xgb':
 
-            estimator = XGBRegressor(random_state=1, nthread=-1, tree_method='gpu_hist', single_precision_histogram=True, validate_paramters=True)
+            estimator = XGBRegressor(random_state=1, nthread=12, tree_method='gpu_hist', single_precision_histogram=True, validate_paramters=True)
 
             xgb_pbounds = {
                 'booster':['dart','gbtree','gblinear'],
                 'max_depth': (3, 11),
-                'learning_rate': (0.1, 0.5),
+                # 'learning_rate': (0.1, 0.5),
                 'subsample': (0.1, 1.),
                 # 'sampling_metod':['uniform','gradient_based'],
                 'colsample_bytree': (0.1, 1.),

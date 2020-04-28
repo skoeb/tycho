@@ -1,5 +1,6 @@
 import copy
 
+import numpy as np
 from lightgbm import LGBMRegressor
 from sklearn.base import RegressorMixin
 from bayes_opt import BayesianOptimization
@@ -85,7 +86,7 @@ class BayesRegressor(RegressorMixin):
             f=self._cv_worker,
             pbounds=self.pbounds,
             random_state=1234,
-            verbose=1
+            verbose=2
         )
 
         optimizer.maximize(
@@ -114,7 +115,9 @@ class BayesRegressor(RegressorMixin):
         self.best_model = self._fit_best_model()
     
     def predict(self, X):
-        return self.best_model.predict(X)
+        pred = self.best_model.predict(X)
+        pred = np.clip(pred, 0, None)
+        return pred
 
 """
 TODO:

@@ -50,7 +50,7 @@ else:
     raise NotImplementedError(f'Please write a wrapper for {TS_FREQUENCY}!')
 
 TRAIN_COUNTRIES = ['United States of America']
-PREDICT_COUNTRIES = ['Puerto Rico']
+PREDICT_COUNTRIES = ['Puerto Rico', 'Cuba', 'Dominican Republic', 'Jamaica', 'Colombia', 'Venezuela']
 
 PREDICT_START_DATE = '01-01-2019'
 PREDICT_END_DATE = '03-01-2020'
@@ -78,13 +78,13 @@ EE_TIMEOUT = 120 #forced timeout, overriding exponential backoff before calling 
 RETRY_EE_NANS = False #after loading cache, retry queries that returned nans in last call
 
 # --- Scale (in meters) to query ---
-BUFFERS = [20000] #1e2, 1e4
+BUFFERS = [10000, 20000] #1e2, 1e4
 
 # --- Hour to grab after --- (i.e. don't consider an observation unless it is after this hour)
 LEFT_WINDOW_HOUR = 20
 
 # --- Degrees to match GPPD and EIA dataframes ---
-DEGREES_DISTANCE_MATCH = 0.01
+DEGREES_DISTANCE_MATCH = 0.005
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~ SANITIZE/SPLIT SETTINGS ~~~~~~~~~~
@@ -103,8 +103,8 @@ CEMS_Y_COLS = [ #LEAKAGE WARNING! Removing something from this list will cause i
 # ~~~~~~~~~~~~~ ML SETTINGS ~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 HOW_TO_SPLIT = 0.1 #test frac
-TRAIN_MODEL = 'bayes-lgbm'
-PREDICT_MODEL = 'bayes-lgbm'
+TRAIN_MODEL = 'bayes-xgb'
+PREDICT_MODEL = 'bayes-xgb'
 ML_Y_COLS = ['gross_load_mw','so2_lbs','nox_lbs','co2_lbs']
 CV_FOLDS = 3
 
@@ -112,7 +112,7 @@ RANDOMSEARCH_ITER = 50
 
 # --- Params for Bayes training ---
 BAYES_N_ITER = 5
-BAYES_INIT_POINTS = 10
+BAYES_INIT_POINTS = 3
 BAYES_ACQ = 'ucb'
 
 # --- Params for TPOT Training ---

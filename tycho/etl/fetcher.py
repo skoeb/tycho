@@ -401,7 +401,7 @@ class EarthEngineFetcher():
                 'geometry':geometry,
                 'scale': self.scale,
                 'bestEffort':True,
-                # 'tileScale':self.tilescale
+                'tileScale':self.tilescale
                 })
             pop_dict = pop_dict.getInfo()
         else:
@@ -417,7 +417,7 @@ class EarthEngineFetcher():
                 'geometry':geometry,
                 'scale': self.scale,
                 'bestEffort':True,
-                # 'tileScale':self.tilescale
+                'tileScale':self.tilescale
                 })
             weath_dict = weath_dict.getInfo()
         else:
@@ -428,11 +428,8 @@ class EarthEngineFetcher():
         std_dict = {f"{k}_std":v for k,v in std_dict.items()}
         sum_dict = {f"{k}_sum":v for k,v in sum_dict.items()}
 
-        # weight_sum_dict = {f"{k}_weighed_sum":v for k,v in weight_sum_dict.items()}
-
         # --- merge ---
         out_dict = {**mean_dict, **sum_dict, **std_dict, **pop_dict, **weath_dict}
-        # out_dict = {**pct_dict, **pop_dict, **weath_dict}
 
         return out_dict
     

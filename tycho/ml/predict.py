@@ -58,16 +58,11 @@ def predict(plot=True):
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~ Read GPPD ~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    GPPDLoad = tycho.GPPDLoader()
+
+    GPPDLoad = tycho.GPPDLoader(countries=config.PREDICT_COUNTRIES)
     GPPDLoad.load() #loads countries 
     gppd = GPPDLoad.gppd
-
-    # --- Subset to PREDICT_COUNTRIES ---
-    for country in config.PREDICT_COUNTRIES:
-        assert country in list(gppd['country_long'])
-
-    gppd = gppd.loc[gppd['country_long'].isin(config.PREDICT_COUNTRIES)]
-
+    
     # --- Repeat rows for observations at TS_FREQUENCY ---
     df = apply_date_range_to_gppd(gppd)
 
@@ -96,7 +91,7 @@ def predict(plot=True):
     clean = preprocess_pipe.transform(clean)
 
     # --- Iterate through each target variable ---
-    pred_out_df = merged[['plant_id_wri', 'datetime_utc', 'country', 'latitude', 'longitude', 'primary_fuel', 'estimated_generation_gwh']]
+    pred_out_df = merged[['plant_id_wri', 'datetime_utc', 'country', 'latitude', 'longitude', 'primary_fuel', 'estimated_generation_gwh', 'wri_capacity_mw']]
 
     log.info('....starting predictions')
     for y_col in config.ML_Y_COLS:

@@ -256,7 +256,7 @@ class GPPDLoader():
 
     def __init__(self,
                  round_coords_at=3,
-                 countries=config.TRAIN_COUNTRIES + config.PREDICT_COUNTRIES,
+                 countries=config.TRAIN_COUNTRIES,
                  save_pickle=True):
 
         log.info('\n')
@@ -270,7 +270,6 @@ class GPPDLoader():
     def _load_csv(self):
         csv_path = os.path.join('data','wri')
         self.gppd = pd.read_csv(os.path.join(csv_path,'global_power_plant_database.csv'), low_memory=False)
-        self.pr = pd.read_csv(os.path.join(csv_path, 'gppd_120_pr.csv'))
         return self
     
     
@@ -301,17 +300,27 @@ class GPPDLoader():
             'estimated_generation_gwh',
             'plant_id_wri'
         ]
-        
+
         # --- change puerto rico to its own country ---
-        pr_ids = list(set(self.pr['gppd_idnr']))
+        pr = pd.read_csv(os.path.join('data', 'wri', 'gppd_120_pr.csv'))
+        pr_ids = list(set(pr['gppd_idnr']))
         self.gppd.loc[self.gppd['gppd_idnr'].isin(pr_ids), 'country_long'] = 'Puerto Rico'
         self.gppd.loc[self.gppd['gppd_idnr'].isin(pr_ids), 'country'] = 'PRI'
 
-        # --- Filter country ---
-        log.info(f"........filtering gppd to include {self.countries}")
-        if 'all' not in self.countries: #include all countries
+        # --- Subset to countries ---
+        if None in self.countries: #all countries!
+            log.info('....including all countries in GPPD!')
+            pass
+
+        else:
             for country in self.countries:
-                assert country in set(self.gppd['country_long'])
+                try:
+                    assert country in list(self.gppd['country_long'])
+                except AssertionError:
+                    others = [c for c in list(set(self.gppd['country_long'])) if c[0:2] == country[0:2]]
+                    log.error(f"{country} not in gppd, did you mean {others}?")
+
+            log.info('....subsetting gppd to include {countries}')
             self.gppd = self.gppd.loc[self.gppd['country_long'].isin(self.countries)]
         
         # --- Round lat lon ---

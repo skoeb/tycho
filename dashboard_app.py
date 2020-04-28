@@ -19,18 +19,17 @@ if __name__ == "__main__":
 
 """
 TODO:
-- css
-- header
-- switches
-    - source
-    - type
-    - variable
-    - fuel
-    - date range slider
-    - agg func
+- color selection
+    - fuel type
+    - add continent to long_df
+    - add decade of construction to long_df
 - tables
     - top global emitters (based on switches, w/ all columns)
     - countries by variable
 - line plot over time
+- validation plot by state
 - Hiveplot of cf and fuel
+- engineer wind velocity
+- try knn
+- query point in wind direction and opposite wind direction, extra features or subtract difference? 
 """

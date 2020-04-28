@@ -58,14 +58,11 @@ class CapacityFeatures(TransformerMixin):
         # --- calc plant avg capacity factor ---
         Xt['capacity_factor'] = (Xt['generation_gwh_2017'] * 1000) / (Xt['wri_capacity_mw'] * 8760)
         
-        # --- calc fuel avg capacity factor for region ---
-        # Xt['avg_region_fuel_capacity_factor'] = Xt.groupby(['region','primary_fuel'])['capacity_factor'].transform(lambda x: x.mean())
-        
-        # --- calc difference between plant cf and region class avg ---
-        # Xt['capacity_factor_diff'] = Xt['capacity_factor'] - Xt['avg_region_fuel_capacity_factor']
+        # --- calc plant age ---
+        Xt['plant_age'] = 2020 - Xt['commissioning_year']
 
         # --- Drop country and state columns ---
-        Xt = Xt.drop(['region','country','state'], axis='columns', errors='ignore')
+        Xt = Xt.drop(['region','country','state','commissioning_year'], axis='columns', errors='ignore')
 
         return Xt
     

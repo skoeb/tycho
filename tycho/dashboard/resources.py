@@ -19,7 +19,7 @@ long_df = pd.read_pickle(os.path.join('data','dashboard','dashboard_df.pkl'))
 long_df['country'] = long_df['country'].apply(alpha3_to_country)
 
 # --- Dict to lookup label from value ---
-label_lookup = {
+variable_lookup = {
     'co2_lbs': 'CO2 lbs',
     'nox_lbs': 'NOx lbs',
     'so2_lbs': 'SO2 lbs',
@@ -28,7 +28,7 @@ label_lookup = {
     'so2_lbs_ef_mwh': 'SO2 lbs/MWh',
 }
 
-color_group_lookup ={
+colorvar_lookup ={
     'primary_fuel':'Primary Fuel',
     'continent':'Continent'
 }

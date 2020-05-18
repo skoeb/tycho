@@ -90,3 +90,11 @@ class timeout:
         signal.alarm(self.seconds)
     def __exit__(self, type, value, traceback):
         signal.alarm(0)
+
+def calc_wind_speed(u, v):
+    wind_spd = np.sqrt(u**2 + v**2)
+    return wind_spd
+
+def calc_wind_deg(u, v):
+    wind_deg = np.mod(180+np.rad2deg(np.arctan2(u, v)),360)
+    return wind_deg

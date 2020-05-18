@@ -14,6 +14,9 @@ import itertools
 import random
 import pickle
 import zipfile
+from pathlib import Path
+import math
+from datetime import timedelta 
 
 # --- External Libraries ---
 import pandas as pd
@@ -21,6 +24,15 @@ import numpy as np
 import geopandas as gpd
 from shapely.ops import nearest_points
 import ee
+import shapely
+from shapely.geometry import Point, Polygon
+from rasterio.mask import mask
+import rasterio
+from rasterio.merge import merge
+from rasterio.plot import show
+from rasterio.enums import Resampling
+from rasterio.io import MemoryFile
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 # --- Module Imports ---
 import tycho.config as config
@@ -577,3 +589,229 @@ class PUDLLoader():
             self.eightsixty.to_pickle(os.path.join('processed','eightsixty_clean.pkl'))
         
         return self
+
+class L3Loader():
+    def __init__(self,
+                 s3_dbs=config.S3_DBS,
+                 checkpoint_freq=0.05,
+                 if_already_exist='replace',
+                 agg_func = np.nansum,
+                 buffer_angle = 60,
+                 buffer_radius = 0.2): #lat/lon degrees 0.1 ~ 11 km. TODO: calculate this more accurately as this changes with latitude):
+        
+        assert if_already_exist in ['skip', 'replace']
+        
+        self.s3_dbs = s3_dbs
+        self.checkpoint_freq = checkpoint_freq
+        self.if_already_exist = if_already_exist
+        
+        self.agg_func = agg_func
+        self.buffer_angle = buffer_angle
+        self.buffer_radius = buffer_radius
+        
+        self.read_file_dir = os.path.join('data','s3','clean')
+        
+    def _loader(self, start_date, db):
+        """
+        Load multiple days worth of arrays, and return them in a list.
+        
+        Inputs
+        ------
+        start_date (str) - YYYY-MM-DD representation of date
+        TS_FREQUENCY (pd code) from config
+        """
+        
+        # --- find time delta --- 
+        delta = pd.to_timedelta(config.TS_FREQUENCY)
+        
+        # --- find dates to aggregate ---
+        dates_to_agg = []
+        for i in range(delta.days):
+            day = pd.Timestamp(start_date) + timedelta(days=i)
+            day = day.strftime('%Y-%m-%d')
+            dates_to_agg.append(day)
+        
+        # --- convert L2 db name to L3 file convention ---
+        read_db = db.split(os.path.sep)[-2].replace('L2','L3')
+        
+        # --- associate dates with file paths ---
+        files = [f"{read_db}{day}.tif" for day in dates_to_agg]
+        
+        # --- open files with rasterio ---
+        arrays = []
+        for f in files:
+            
+            # --- read as numpy array ---
+            srcr = rasterio.open(os.path.join(self.read_file_dir, f))      
+            array = srcr.read()
+            arrays.append(array)
+            
+        # --- get metadata ---
+        profile = srcr.profile
+        
+        return arrays, profile
+    
+    def _sector_of_circle(self, center, start_angle, end_angle, radius, steps=200):
+        """Helper function to calculate a mask comprising a segment of a circle."""
+        #https://stackoverflow.com/questions/54284984/sectors-representing-and-intersections-in-shapely
+        
+        def polar_point(origin_point, angle,  distance):
+            return [origin_point.x + math.sin(math.radians(angle)) * distance, origin_point.y + math.cos(math.radians(angle)) * distance]
+
+        if start_angle > end_angle:
+            start_angle = start_angle - 360
+        else:
+            pass
+        step_angle_width = (end_angle-start_angle) / steps
+        sector_width = (end_angle-start_angle) 
+        segment_vertices = []
+    
+        segment_vertices.append(polar_point(center, 0,0))
+        segment_vertices.append(polar_point(center, start_angle,radius))
+    
+        for z in range(1, steps):
+            segment_vertices.append((polar_point(center, start_angle + z * step_angle_width,radius)))
+        segment_vertices.append(polar_point(center, start_angle+sector_width,radius))
+        segment_vertices.append(polar_point(center, 0,0))
+        return Polygon(segment_vertices)
+        
+    def _aggregate(self, arrays, profile):
+        """
+        Aggregate list of numpy arrays into a single array (as a sum)
+        
+        Inputs
+        ------
+        arrays (list) - list of numpy arrays
+        """
+        
+        # --- aggregate to timeslice size (mosaic) ---
+        dtype = profile['dtype']
+        agg = np.sum(arrays, axis=0, dtype=dtype)
+        
+        # --- convert agg from array to raster ---
+        # https://gis.stackexchange.com/questions/329434/creating-an-in-memory-rasterio-dataset-from-numpy-array
+        # with MemoryFile() as memfile:
+        memfile = MemoryFile()
+        with memfile.open(**profile) as dataset: # Open as DatasetWriter
+            dataset.write(agg)
+                # del data
+        
+        dataset = memfile.open()
+        return dataset
+        # with memfile.open() as dataset:  # Reopen as DatasetReader
+        #     yield dataset  # Note yield not return    
+              
+    def _worker(self, job, dataset):
+        """
+        Given a job (consisting of a lat, lon, and winddirection) and a dataset, calculate the upwind and downwind emissions.
+        
+        Inputs
+        ------
+        job (tuple) - (lat, lon, wind direction degrees)
+        dataset (rasterio dataset) - result of self._aggregate()
+        """
+
+        # --- unpack job ---
+        lat = job['latitude']
+        lon = job['longitude']
+        wind_deg = job['wind_deg_from']
+        
+        # --- construct start and end angles for buffers ---
+        center = Point(lon, lat)
+        down_wind_start_angle = 180 + wind_deg - (self.buffer_angle / 2)
+        down_wind_end_angle = 180 + wind_deg + (self.buffer_angle / 2)
+        up_wind_start_angle =  wind_deg - (self.buffer_angle / 2)
+        up_wind_end_angle = wind_deg + (self.buffer_angle / 2)
+
+        # --- deal with angles greater than 360 or negative ---
+        def clean_angle(angle):
+            if angle > 360:
+                return angle - 360
+            elif angle < 0:
+                return 360 + angle
+            else:
+                return angle
+        
+        up_wind_start_angle = clean_angle(up_wind_start_angle)
+        up_wind_end_angle = clean_angle(up_wind_end_angle)
+        down_wind_start_angle = clean_angle(down_wind_start_angle)
+        down_wind_end_angle = clean_angle(down_wind_end_angle)
+        
+        # --- create masks of buffers ---
+        up_wind = self._sector_of_circle(center, up_wind_start_angle, up_wind_end_angle, self.buffer_radius)
+        down_wind = self._sector_of_circle(center, down_wind_start_angle, down_wind_end_angle, self.buffer_radius)
+        
+        # --- apply masks ---
+        up_wind_masked, up_masked_transform = mask(dataset, [up_wind], crop=True)
+        down_wind_masked, down_masked_transform = mask(dataset, [down_wind], crop=True)
+        
+        # --- replace null values ---
+        up_wind_masked[up_wind_masked==np.nan] = 0
+        down_wind_masked[down_wind_masked==np.nan] = 0
+        
+        # --- aggregate ---
+        up_wind_val = self.agg_func(up_wind_masked)
+        down_wind_val = self.agg_func(down_wind_masked)
+        
+        return (job['plant_id_wri'], up_wind_val, down_wind_val)
+    
+    def calculate(self, df):
+
+        # --- Calculate Wind Speed ---
+        df['wind_spd'] = np.vectorize(helper.calc_wind_speed)(df['u_component_of_wind_10m'], df['v_component_of_wind_10m'])
+        df['wind_deg_from'] = np.vectorize(helper.calc_wind_deg)(df['u_component_of_wind_10m'], df['v_component_of_wind_10m'])
+
+        # --- for each date ---
+        date_dfs = []
+        for start_date in set(df['datetime_utc']):
+            
+            # --- for each db ---
+            for db in self.s3_dbs:
+            
+                # --- subset date ---
+                date_df = df.loc[df['datetime_utc'] == start_date]
+                
+                # --- load arrays ---
+                arrays, profile = self._loader(start_date, db)
+                
+                # --- aggregate into single array ---
+                dataset = self._aggregate(arrays, profile)
+                
+                # --- run df as jobs ---
+                log.info(f"....{len(df)} jobs queued for merging")
+                if config.MULTIPROCESSING:
+                    results = []
+                    
+                    start = time.time()
+                    completed = 0
+                    checkpoint = max(1, int(len(date_df) * self.checkpoint_freq))
+                    
+                    with cf.ThreadPoolExecutor(max_workers=config.THREADS) as executor: 
+                        
+                        # --- Submit to worker ---
+                        futures = [executor.submit(self._worker, job, dataset) for _, job in date_df.iterrows()]
+                        
+                        for f in cf.as_completed(futures):
+                            results.append(f.result())
+                            completed += 1
+                            
+                            if completed % checkpoint == 0:
+                                per_download = round((time.time() - start) / completed, 3)
+                                eta = round((len(date_df) - completed) * per_download / 3600, 3)
+                                log.info(f"........finished job {completed} / {len(date_df)}  ETA: {eta} hours")
+                else:
+                    results = [self._worker(job, dataset) for _, job in df.iterrows()]
+                        
+                # --- assemble results ---
+                results_df = pd.DataFrame(results, columns=['plant_id_wri',f'{db}_up_wind',f'{db}_down_wind'])
+                results_df['datetime_utc'] = start_date
+                
+                # --- merge results ---
+                date_df = df.merge(results_df, on=['plant_id_wri', 'datetime_utc'], how='left')
+                
+                # --- append to date_dfs ---
+                date_dfs.append(date_df)
+            
+            df = pd.concat(date_dfs, axis='rows')
+            
+            return df

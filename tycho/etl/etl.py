@@ -75,18 +75,30 @@ def etl():
             log.info(f"....n_generators now {len(list(set(df['plant_id_wri'])))} from config")
         
         # --- Output pickle ---
-        df.to_pickle(os.path.join('processed','pre_ee.pkl'))
+        df.to_pickle(os.path.join('processed','pre_ee.pkl'), protocol=4)
     
     else:
         df = pd.read_pickle(os.path.join('processed','pre_ee.pkl'))
 
-    # --- Load Google Earth Engine Data using df for dates ---
-    EeFetch = tycho.EarthEngineFetcher()
-    EeFetch.fetch(df)
+    # --- Load Google Earth Engine Data (such as weather and population) using df for dates ---
+    EarthEngineFetch = tycho.EarthEngineFetcherLite()
+    EarthEngineFetch.fetch(df)
 
     # --- Merge Remote Sensing (Earth Engine) Data onto df ---
-    RemoteMerge = tycho.RemoteDataMerger()
-    df = RemoteMerge.merge(df)
+    EarthEngineMerge = tycho.EarthEngineDataMergerLite()
+    df = EarthEngineMerge.merge(df)
+
+    # --- fetch S3 data ---
+    SentinelFetcher = tycho.S3Fetcher()
+    SentinelFetcher.fetch(df)
+
+    # --- merge S3 data together ---
+    SentinelMerger = tycho.L3Merger()
+    SentinelMerger.merge(df)
+
+    # --- aggregate and merge onto df ---
+    SentinelCalculator = tycho.L3Calculator()
+    df = SentinelCalculator.calculate(df)
     
     # --- Save to Pickle ---
     with open(os.path.join('processed','merged_df.pkl'), 'wb') as handle:

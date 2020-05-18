@@ -14,6 +14,9 @@ import itertools
 import random
 import pickle
 import hashlib
+from pathlib import Path
+import math
+from datetime import timedelta 
 
 # --- External Libraries ---
 import pandas as pd
@@ -21,6 +24,15 @@ import numpy as np
 import geopandas as gpd
 from shapely.ops import nearest_points
 import ee
+import shapely
+from shapely.geometry import Point, Polygon
+from rasterio.mask import mask
+import rasterio
+from rasterio.merge import merge
+from rasterio.plot import show
+from rasterio.enums import Resampling
+from rasterio.io import MemoryFile
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 # --- Module Imports ---
 import tycho.config as config
@@ -226,7 +238,7 @@ class TrainingDataMerger():
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~ STITCH EARTH ENGINE ~~~~~~~~~~~~
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-class RemoteDataMerger():
+class EarthEngineDataMerger():
     """
     Convert pickled monthly long_dfs containing earth engine data as 'value' and 'variable'
     columns into a wide_df, grouped by datetime_utc and plant_id_eia, 
@@ -333,3 +345,302 @@ class RemoteDataMerger():
         self._merge_pivot(df)
         self._clean()
         return self.merged
+
+ 
+class EarthEngineDataMergerLite():
+    """
+    Convert pickled monthly long_dfs containing earth engine data as 'value' and 'variable'
+    columns into a wide_df, grouped by datetime_utc and plant_id_eia, 
+    with multiple columns per buffer. 
+
+    Inputs
+    ------
+    earthengine_dbs (list) - the list of earthengine databases to fetch (i.e. "COPERNICUS/S5P/OFFL/L3_NO2").
+    buffers (list) - list of buffer sizes (in meters) to load. Each pickle has multiple buffers stored within it. 
+    ts_frequency (str) - the desired pandas frequency of resampling, hardcoded into pickle names. 
+
+    Methods
+    -------
+    merge() - perform pickle loading, merging, cleaning, and pivoting
+
+    Attributes
+    -------
+    self.clean_files (list) - the list of files that have been loaded. Each formatted like:
+        <EARTHENGINE_DB>&agg<TS_FREQUENCY>&<MONTH>.pkl
+    self.merged (DataFrame) - merged and cleaned long_df
+    self.pivot (DataFrame) - merged, pivoted into a wide_df
+
+    Assumptions
+    -----------
+    - all of the requested buffers and earthengine_dbs have already been run thourh EarthEngineFetcher()
+    - plant_id_eia is not purposefully duplicated
+    """
+    def __init__(self,
+                earthengine_dbs=config.EARTHENGINE_DBS,
+                buffers=config.BUFFERS,
+                ts_frequency=config.TS_FREQUENCY):
+        self.earthengine_dbs = earthengine_dbs
+        self.buffers = buffers
+        self.ts_frequency = ts_frequency
+
+        self.pickle_path = os.path.join('data','earthengine')
+    
+    def _read_pickles(self):
+
+        # --- create hash of dbs to query ---
+        db_string = ''.join(list(sorted(self.earthengine_dbs)))
+        db_hash = int(hashlib.sha1(str.encode(db_string)).hexdigest(), 16) % (10 ** 8)
+        db_hash = 'hash' + str(db_hash)
+
+        files = os.listdir(self.pickle_path)  
+        self.clean_files = []
+        # --- find out which files to read in --
+        for f in files:
+            if '#' in f:
+                h, ts = f.split('#')
+                ts = ts.replace('agg', '').replace('.pkl','')
+                if ts == self.ts_frequency:
+                    if h == db_hash:
+                        self.clean_files.append(f) 
+
+        # --- read files and concat ---
+        dfs = []
+        for f in self.clean_files:
+            dfs.append(pd.read_pickle(os.path.join(self.pickle_path, f)))
+        
+        # --- concat dfs into long earthengine df ---
+        if len(dfs) > 0:
+            self.earthengine = pd.concat(dfs, axis='rows', sort=False)
+
+        return self
+
+    def _pivot_buffers(self, buffers=config.BUFFERS):
+        """Pivot multiple buffers into a wider df."""
+
+        # --- Filter out the buffers provided ---
+        self.earthengine = self.earthengine.loc[self.earthengine['buffer'].isin(buffers)]
+
+        # --- Pivot ---
+        self.pivot = self.earthengine.pivot_table(index=['plant_id_wri','datetime_utc'], columns='variable',values='value')
+        self.pivot.reset_index(drop=False, inplace=True)
+        return self
+
+    def _merge_pivot(self, df):
+        """Merge pivot onto df (continaing generators and CEMS if training)."""
+
+        self.merged = df.merge(self.pivot, on=['plant_id_wri', 'datetime_utc'])
+        return self
+
+    def _clean(self):
+
+        # --- Drop any duplicates ---
+        self.merged = self.merged.drop_duplicates(subset=['plant_id_wri','datetime_utc'])
+
+        # --- Drop any nans ---
+        self.merged = self.merged.dropna(subset=['plant_id_wri','datetime_utc'])
+
+        # --- convert emissions to lbs ---
+        convert_columns = [c for c in self.merged.columns if 'column_number_density' in c]
+        self.merged[convert_columns] = self.merged[convert_columns] * 24500000 * 46 / 454
+        new_columns = [c.replace('column_number_density','sentinel_lbs') for c in self.merged.columns]
+        self.merged.columns = new_columns
+
+        return self
+    
+    def merge(self, df):
+        self._read_pickles()
+        self._pivot_buffers()
+        self._merge_pivot(df)
+        self._clean()
+        return self.merged
+  
+class L3Merger():
+    def __init__(self,
+                 s3_dbs=config.S3_DBS,
+                 raw_s3_local_path=config.RAW_S3_DIR, 
+                 checkpoint_freq=0.05,
+                 if_already_exist='skip',
+                 resample_scale=1,
+                 downcast_dtype='uint8',
+                 ):
+        
+        assert if_already_exist in ['skip', 'replace']
+        
+        self.s3_dbs = s3_dbs
+        self.raw_s3_local_path=raw_s3_local_path,
+        self.checkpoint_freq = checkpoint_freq
+        self.if_already_exist = if_already_exist
+        self.resample_scale = resample_scale
+        self.downcast_dtype = downcast_dtype
+        
+        self.db_mosaics = {}
+        self.db_rasters = {}
+
+        self.out_file_dir = os.path.join('data','s3','clean')
+    
+    def _load_basemap(self):
+        """Read in blank basemap, to merge satelite images with."""
+        self.blank_world = rasterio.open(os.path.join('data','s3','blankCOGT.tiff'))
+        return self
+    
+    def _worker(self, job):
+        """Load rasters, merge, and save to disk for a given date and db."""
+        
+        # --- unpack job ---
+        sanitized_db, date = job
+        
+        # --- list all satellite image COGT fragments for date ---
+        y = str(date.year).zfill(2)
+        m = str(date.month).zfill(2)
+        d = str(date.day).zfill(2)
+
+        db_dir = os.path.join(self.raw_s3_local_path, sanitized_db)
+        date_dir = os.path.join(db_dir, str(y), str(m), str(d))
+        files = os.listdir(date_dir)
+        
+        # --- filter out inapplicable files ---
+        files = [f for f in files if '.tif' in f]
+        files = [f for f in files if 'PRODUCT_qa_value' not in f]
+        
+        # --- open files with rasterio ---
+        src_files = []
+        for f in files:
+            
+            # --- read rasters ---
+            srcr = rasterio.open(os.path.join(date_dir, f))         
+            src_files.append(srcr)
+        
+        # --- merge into a single raster --- #TODO: Confirm rasterio behavior for overlaps
+        mosaic, mosaic_transform = merge(src_files + [self.blank_world]) #https://gis.stackexchange.com/questions/360685/creating-daily-mosaics-from-orbiting-satellite-imagery
+        
+        # --- replace null values ---
+        null_val = srcr.nodata
+        mosaic[mosaic==null_val] = np.nan
+        
+        # --- copy meta data ---
+        profile = srcr.meta.copy()
+        profile.update(
+                    width=mosaic.shape[2],
+                    height=mosaic.shape[1],
+                    transform=mosaic_transform)
+        
+        # --- resample in memory ---
+        if self.resample_scale != 1:
+            with MemoryFile() as memfile:
+                with memfile.open(**profile) as dataset:
+                    dataset.write(mosaic)
+                
+                dataset = memfile.open()
+                
+            mosaic = dataset.read(
+                out_shape=(
+                    dataset.count,
+                    int(dataset.height * self.resample_scale),
+                    int(dataset.width * self.resample_scale)
+                ),
+                resampling=Resampling.bilinear
+            )
+        
+            # --- scale image transform ---
+            mosaic_transform = dataset.transform * dataset.transform.scale(
+                                    (dataset.width / mosaic.shape[-1]),
+                                    (dataset.height / mosaic.shape[-2])
+                                )
+            
+            del dataset
+        
+        if self.downcast_dtype != 'float64':
+
+            # --- clip ---
+            mosaic = np.clip(mosaic, np.percentile(mosaic, 1), np.percentile(mosaic, 99))
+            
+            # --- normalize ---
+            downcast_min_val = np.iinfo(self.downcast_dtype).min
+            downcast_max_val = np.iinfo(self.downcast_dtype).max
+            Scaler = MinMaxScaler(feature_range=(downcast_min_val, downcast_max_val))
+            mosaic = np.squeeze(mosaic)
+            mosaic = Scaler.fit_transform(mosaic)
+            
+            # --- downcast ---
+            mosaic = mosaic.astype(self.downcast_dtype)
+            
+            # --- Make 3D as rasterio expects ---
+            mosaic = np.expand_dims(mosaic, axis=0)
+            
+            # --- update profile again ---
+            profile.update(
+                width=mosaic.shape[2],
+                height=mosaic.shape[1],
+                transform=mosaic_transform,
+                dtype=self.downcast_dtype,
+                nodata=0)
+    
+        # --- save to disk ---
+        out_db = sanitized_db.split(os.path.sep)[-2].replace('L2','L3')
+        out_filename = f"{out_db}{date.strftime('%Y-%m-%d')}.tif"
+        out_fp = os.path.join(self.out_file_dir, out_filename)
+        
+        with rasterio.open(out_fp, "w", **profile) as fp:
+            fp.write(mosaic)
+        
+        return self
+        
+    
+    def merge(self, df):
+        """Main wrapper."""
+
+        dates = list(set(df['datetime_utc']))
+        
+        # --- load basemap ---
+        self._load_basemap()
+        
+        # --- Construct list of jobs ---
+        jobs = []
+        for db in self.s3_dbs:
+            
+            # --- clean db name ---
+            sanitized_db = db.replace('/', os.path.sep)
+            out_db = db.split('/')[-2].replace('L2','L3')
+        
+            # --- for each date ---
+            for date in dates:
+        
+                # --- check if file already exists ---
+                out_filename = f"{out_db}{date.strftime('%Y-%m-%d')}.tif"
+                out_fp = os.path.join(self.out_file_dir, out_filename)
+
+                if os.path.exists(out_fp):
+                    if self.if_already_exist == 'skip':
+                        continue
+                    elif self.if_already_exist == 'replace':
+                        os.remove(out_fp)
+                
+                # --- add to jobs ---
+                job = (sanitized_db, date)
+                jobs.append(job)
+    
+        # --- run jobs ---
+        log.info(f"....{len(jobs)} jobs queued for merging")
+        if config.MULTIPROCESSING:
+            
+            start = time.time()
+            completed = 0
+            checkpoint = max(1, int(len(jobs) * self.checkpoint_freq))
+            
+            with cf.ThreadPoolExecutor(max_workers=config.THREADS) as executor: 
+                
+                # --- Submit to worker ---
+                futures = [executor.submit(self._worker, job) for job in jobs]
+                
+                for f in cf.as_completed(futures):
+                    completed += 1
+                    
+                    if completed % checkpoint == 0:
+                        per_download = round((time.time() - start) / completed, 3)
+                        eta = round((len(jobs) - completed) * per_download / 3600, 3)
+                        log.info(f"........finished job {completed} / {len(jobs)}  ETA: {eta} hours")
+        else:
+            for job in jobs:
+                self._worker(job)
+                
+        return self

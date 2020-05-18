@@ -422,6 +422,13 @@ def plot_emission_factor(data_type='pred',
     plt.tight_layout()
     plt.savefig(os.path.join('images',f'{country_out}_emission_factor_prediction.png'))
 
+def plot_with_map(array, transform, db):
+    fig, ax = plt.subplots(figsize=(15, 15))
+    countries = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
+    rasterio.plot.show(array, transform=transform, ax=ax)
+    countries.plot(ax=ax, facecolor='none', edgecolor='red')
+    ax.set_title(db)
+    
 def plot_shap(merged):
     # --- Setup Shap ---
     shap.initjs()

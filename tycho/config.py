@@ -4,15 +4,7 @@ Created on Sat Mar  7 08:48:27 2020
 @author: SamKoebrich
 """
 
-#TODO:
-# drop index column from train.py
-# plot training data against actual
-# 1 day earth engine, with 8PM offset?
-# try with CEMS observed plants only
-# test corr for lots of buffers for small number of plants (25?)
-# integrate linear regression
-# store data on google cloud and write function to pull?
-# make bokeh map
+import os
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~ GENERAL SETTINGS ~~~~~~~~~~~~~
@@ -21,24 +13,24 @@ Created on Sat Mar  7 08:48:27 2020
 # --- Number of generators for training set ---
 #   - most downloads are cached, so if you set a higher number, 
 #     and then a lower, you don't lose data.
-RUN_PRE_EE = True
+RUN_PRE_EE = False
 N_GENERATORS = None
 
 # --- Multiprocessing settings ---
 MULTIPROCESSING = True
-WORKERS = 12
-THREADS = 12 #ThreadPoolExecutor is failing for Earth Engine queries, so this is still using ProcessPool
+WORKERS = 6
+THREADS = 6 #ThreadPoolExecutor is failing for Earth Engine queries, so this is still using ProcessPool
 
 # --- Bool for detailed output ---
 VERBOSE = False
 
 # --- Frequency of observations (i.e. 'D' for daily, 'W', for weekly, 'M' for monthly, 'A' for annual) --- 
-TS_FREQUENCY = 'MS'
+TS_FREQUENCY = '1D'
 if TS_FREQUENCY in ['W','W-SUN']:
     TS_DIVISOR = 52
 elif TS_FREQUENCY in ['MS']:
     TS_DIVISOR = 12
-elif TS_FREQUENCY in ['D']:
+elif TS_FREQUENCY in ['D', '1D']:
     TS_DIVISOR = 365
 elif TS_FREQUENCY in ['A','AS']:
     TS_DIVISOR = 1
@@ -57,18 +49,14 @@ PREDICT_END_DATE = '03-01-2020'
 
 CEMS_MEASUREMENT_FLAGS = ['Measured'] #blank for include everything
 
+FETCH_SENTINEL_FROM = 'S3'
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~ EARTH ENGINE SETTINGS ~~~~~~~~~~
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # --- Sources ---
 EARTHENGINE_DBS = [
-    "COPERNICUS/S5P/OFFL/L3_CLOUD",
-    "COPERNICUS/S5P/OFFL/L3_NO2",
-    "COPERNICUS/S5P/OFFL/L3_SO2",
-    "COPERNICUS/S5P/OFFL/L3_CO",
-    "COPERNICUS/S5P/OFFL/L3_HCHO",
-    "COPERNICUS/S5P/OFFL/L3_O3",
     "CIESIN/GPWv411/GPW_Population_Count",
     "ECMWF/ERA5/DAILY"
 ]
@@ -78,13 +66,32 @@ EE_TIMEOUT = 120 #forced timeout, overriding exponential backoff before calling 
 RETRY_EE_NANS = False #after loading cache, retry queries that returned nans in last call
 
 # --- Scale (in meters) to query ---
-BUFFERS = [10000, 20000] #1e2, 1e4
+BUFFERS = [20000] #1e2, 1e4
 
 # --- Hour to grab after --- (i.e. don't consider an observation unless it is after this hour)
 LEFT_WINDOW_HOUR = 20
 
 # --- Degrees to match GPPD and EIA dataframes ---
 DEGREES_DISTANCE_MATCH = 0.005
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ~~~~~~~~~~~~~~ L3 SETTINGS ~~~~~~~~~~~~~~~
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+RAW_S3_DIR = os.path.join('HDD','tycho_raw')
+
+S3_DBS = [
+        'COGT/OFFL/L2__SO2___/',
+        # 'COGT/OFFL/L2__O3____/', #available 2019-04 on
+        'COGT/OFFL/L2__NO2___/',
+        'COGT/OFFL/L2__HCHO__/',
+        'COGT/OFFL/L2__CH4___/',
+        'COGT/OFFL/L2__CO____/',
+        # 'COGT/OFFL/L2__CLOUD_/' #available 2019-04 on 
+        'COGT/OFFL/L2__AER_AI/'
+        ]
+
+S3_BUCKET = 'meeo-s5p'
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~ SANITIZE/SPLIT SETTINGS ~~~~~~~~~~

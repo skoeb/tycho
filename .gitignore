@@ -1,6 +1,9 @@
 *.sqlite
 *.pyc
+*.tiff
+*.tif
 
+data/s3/*.tiff
 data/CEMS/csvs/*.zip
 logs/*.txt
 models/tpot/checkpoints/*

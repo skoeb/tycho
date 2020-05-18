@@ -16,6 +16,25 @@ from pandas._testing import assert_frame_equal
 import tycho
 from tycho.config import *
 
+def test_wind_spd():
+    df = pd.DataFrame({
+        'u':[0,0,1],
+        'v':[1,-1,1]
+    })
+
+    spd = np.vectorize(fetcher.calculate_wind_spd)(df['u'], df['v'])
+
+    assert spd == np.array([0, 0, 0])
+
+def test_wind_deg():
+    df = pd.DataFrame({
+        'u':[0,0,1],
+        'v':[1,-1,1]
+    })
+
+    spd = np.vectorize(fetcher.calculate_wind_deg)(df['u'], df['v'])
+
+    assert spd == np.array([180, 0, 225])
 
 #TODO: test WRI distance matching? 
 

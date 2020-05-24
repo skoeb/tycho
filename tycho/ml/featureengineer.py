@@ -24,6 +24,23 @@ import tycho.helper as helper
 import logging
 log = logging.getLogger("tycho")
 
+class WindFeatures(TransformerMixin):
+
+    def __init__(self):
+        pass
+    
+    def _calc(self, df):
+        for db in config.S3_DBS:
+            df[f"marginal_{db}"] = df[f"up_wind_{db}"] - df[f"down_wind_{db}"]
+        return df
+    
+    def fit(self, X, y=None):
+        return self._calc(X)
+    
+    def predict(self, X, y=None):
+        return self._calc(X)
+
+
 class CapacityFeatures(TransformerMixin):
     def __init__(self):
         self.region_fuel_table = None
@@ -134,6 +151,7 @@ class DateFeatures(TransformerMixin):
 
         # --- get day of week ---
         Xt['dow'] = [i.dayofweek for i in Xt['datetime_utc']]
+        Xt['month'] = [i.month for i in Xt['datetime_utc']]
         return Xt
         
     def fit(self, X, y=None):

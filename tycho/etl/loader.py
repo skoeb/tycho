@@ -17,6 +17,7 @@ import zipfile
 from pathlib import Path
 import math
 from datetime import timedelta 
+import functools
 
 # --- External Libraries ---
 import pandas as pd
@@ -33,6 +34,8 @@ from rasterio.plot import show
 from rasterio.enums import Resampling
 from rasterio.io import MemoryFile
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.metrics import r2_score
+from bayes_opt import BayesianOptimization, SequentialDomainReductionTransformer
 
 # --- Module Imports ---
 import tycho.config as config
@@ -594,20 +597,15 @@ class L3Loader():
     def __init__(self,
                  s3_dbs=config.S3_DBS,
                  checkpoint_freq=0.05,
-                 if_already_exist='replace',
-                 agg_func = np.nansum,
-                 buffer_angle = 60,
-                 buffer_radius = 0.2): #lat/lon degrees 0.1 ~ 11 km. TODO: calculate this more accurately as this changes with latitude):
-        
-        assert if_already_exist in ['skip', 'replace']
+                 agg_func = np.nansum): #lat/lon degrees 0.1 ~ 11 km. TODO: calculate this more accurately as this changes with latitude):
         
         self.s3_dbs = s3_dbs
         self.checkpoint_freq = checkpoint_freq
-        self.if_already_exist = if_already_exist
         
         self.agg_func = agg_func
-        self.buffer_angle = buffer_angle
-        self.buffer_radius = buffer_radius
+
+        with open(os.path.join('models','bayes_buffer_params.pkl'), 'rb') as handle:
+            self.bayes_param_dict = pickle.load(handle)
         
         self.read_file_dir = os.path.join('data','s3','clean')
         
@@ -628,8 +626,9 @@ class L3Loader():
         dates_to_agg = []
         for i in range(delta.days):
             day = pd.Timestamp(start_date) + timedelta(days=i)
-            day = day.strftime('%Y-%m-%d')
-            dates_to_agg.append(day)
+            if day.year < config.MAX_YEAR + 1:
+                day = day.strftime('%Y-%m-%d')
+                dates_to_agg.append(day)
         
         # --- convert L2 db name to L3 file convention ---
         read_db = db.split(os.path.sep)[-2].replace('L2','L3')
@@ -639,23 +638,33 @@ class L3Loader():
         
         # --- open files with rasterio ---
         arrays = []
-        for f in files:
-            
-            # --- read as numpy array ---
-            srcr = rasterio.open(os.path.join(self.read_file_dir, f))      
-            array = srcr.read()
-            arrays.append(array)
-            
-        # --- get metadata ---
-        profile = srcr.profile
+        for f in files:  
+            try:
+                # --- read as numpy array ---
+                srcr = rasterio.open(os.path.join(self.read_file_dir, f))      
+                array = srcr.read()
+                arrays.append(array)
+                profile = srcr.profile
+                srcr.close()
+            except rasterio.errors.RasterioIOError:
+                # log.warning(f'Warining, could not find {f}') #TODO FIX THIS for 12-30 and 12-31 missing!
+                pass
         
         return arrays, profile
     
-    def _sector_of_circle(self, center, start_angle, end_angle, radius, steps=200):
+    def _sector_of_circle_on_row(self, row, direction):
+        """Helper function to apply sector_of_circle on a dataframe."""
+        if direction == 'up':
+            return self._sector_of_circle(row['center'], row['up_wind_start_angle'], row['up_wind_end_angle'], row['radius'])
+        elif direction == 'down':
+            return self._sector_of_circle(row['center'], row['down_wind_start_angle'], row['down_wind_end_angle'], row['radius'])
+
+
+    def _sector_of_circle(self, center, start_angle, end_angle, radius, steps=50):
         """Helper function to calculate a mask comprising a segment of a circle."""
         #https://stackoverflow.com/questions/54284984/sectors-representing-and-intersections-in-shapely
         
-        def polar_point(origin_point, angle,  distance):
+        def polar_point(origin_point, angle, distance):
             return [origin_point.x + math.sin(math.radians(angle)) * distance, origin_point.y + math.cos(math.radians(angle)) * distance]
 
         if start_angle > end_angle:
@@ -674,54 +683,28 @@ class L3Loader():
         segment_vertices.append(polar_point(center, start_angle+sector_width,radius))
         segment_vertices.append(polar_point(center, 0,0))
         return Polygon(segment_vertices)
-        
-    def _aggregate(self, arrays, profile):
-        """
-        Aggregate list of numpy arrays into a single array (as a sum)
-        
-        Inputs
-        ------
-        arrays (list) - list of numpy arrays
-        """
-        
-        # --- aggregate to timeslice size (mosaic) ---
-        dtype = profile['dtype']
-        agg = np.sum(arrays, axis=0, dtype=dtype)
-        
-        # --- convert agg from array to raster ---
-        # https://gis.stackexchange.com/questions/329434/creating-an-in-memory-rasterio-dataset-from-numpy-array
-        # with MemoryFile() as memfile:
-        memfile = MemoryFile()
-        with memfile.open(**profile) as dataset: # Open as DatasetWriter
-            dataset.write(agg)
-                # del data
-        
-        dataset = memfile.open()
-        return dataset
-        # with memfile.open() as dataset:  # Reopen as DatasetReader
-        #     yield dataset  # Note yield not return    
-              
-    def _worker(self, job, dataset):
-        """
-        Given a job (consisting of a lat, lon, and winddirection) and a dataset, calculate the upwind and downwind emissions.
-        
-        Inputs
-        ------
-        job (tuple) - (lat, lon, wind direction degrees)
-        dataset (rasterio dataset) - result of self._aggregate()
-        """
 
-        # --- unpack job ---
-        lat = job['latitude']
-        lon = job['longitude']
-        wind_deg = job['wind_deg_from']
+    def db_worker(self, db_df, db, buffer_angle=None, buffer_radius=None):
+
+        db_df['db'] = db
+        db_df = db_df[['db','datetime_utc','plant_id_wri', 'wind_deg_from','longitude','latitude']]
+
+        start = time.time()
+
+        # --- fetch params from bayes dict ---
+        if buffer_angle == None:
+            buffer_angle = self.bayes_param_dict[db]['params']['angle']
+        if buffer_radius == None:
+            buffer_radius = self.bayes_param_dict[db]['params']['radius']
+        db_df['radius'] = buffer_radius
         
         # --- construct start and end angles for buffers ---
-        center = Point(lon, lat)
-        down_wind_start_angle = 180 + wind_deg - (self.buffer_angle / 2)
-        down_wind_end_angle = 180 + wind_deg + (self.buffer_angle / 2)
-        up_wind_start_angle =  wind_deg - (self.buffer_angle / 2)
-        up_wind_end_angle = wind_deg + (self.buffer_angle / 2)
+        db_df['center'] = [Point(row['longitude'], row['latitude']) for _, row in db_df.iterrows()]#TODO: reverse these and see effect
+        db_df.drop(['longitude','latitude'], axis='columns', inplace=True)
+        db_df['down_wind_start_angle'] = 180 + db_df['wind_deg_from'] - (buffer_angle / 2)
+        db_df['down_wind_end_angle'] = 180 + db_df['wind_deg_from'] + (buffer_angle / 2)
+        db_df['up_wind_start_angle'] =  db_df['wind_deg_from'] - (buffer_angle / 2)
+        db_df['up_wind_end_angle'] = db_df['wind_deg_from'] + (buffer_angle / 2)
 
         # --- deal with angles greater than 360 or negative ---
         def clean_angle(angle):
@@ -731,87 +714,179 @@ class L3Loader():
                 return 360 + angle
             else:
                 return angle
-        
-        up_wind_start_angle = clean_angle(up_wind_start_angle)
-        up_wind_end_angle = clean_angle(up_wind_end_angle)
-        down_wind_start_angle = clean_angle(down_wind_start_angle)
-        down_wind_end_angle = clean_angle(down_wind_end_angle)
-        
+
+        db_df['down_wind_start_angle'] = db_df['down_wind_start_angle'].apply(clean_angle)
+        db_df['up_wind_end_angle'] = db_df['up_wind_end_angle'].apply(clean_angle)
+        db_df['down_wind_start_angle'] = db_df['down_wind_start_angle'].apply(clean_angle)
+        db_df['down_wind_end_angle'] = db_df['down_wind_end_angle'].apply(clean_angle)
+
         # --- create masks of buffers ---
-        up_wind = self._sector_of_circle(center, up_wind_start_angle, up_wind_end_angle, self.buffer_radius)
-        down_wind = self._sector_of_circle(center, down_wind_start_angle, down_wind_end_angle, self.buffer_radius)
+        db_df['up_wind_mask'] = db_df.apply(self._sector_of_circle_on_row, direction='up', axis=1)
+        db_df['down_wind_mask'] = db_df.apply(self._sector_of_circle_on_row, direction='down', axis=1)
+
+        checkpoint = max(int(len(set(db_df['datetime_utc'])) * 0.05), 1)
+        dates_done = 0
+        for date in set(db_df['datetime_utc']):
+
+            # --- load arrays ---
+            arrays, profile = self._loader(date, db)
+
+            # --- aggregate to timeslice size (mosaic) ---
+            profile['dtype'] = 'uint32'
+            agg = np.sum(arrays, axis=0, dtype='uint32')
+
+            with MemoryFile() as memfile:
+                with memfile.open(**profile) as dataset: # Open as DatasetWriter
+                    dataset.write(agg)
+                
+                with memfile.open() as dataset:  # Reopen as DatasetReader
+
+                    for ix, row in db_df.loc[db_df['datetime_utc'] == date].iterrows():
         
-        # --- apply masks ---
-        up_wind_masked, up_masked_transform = mask(dataset, [up_wind], crop=True)
-        down_wind_masked, down_masked_transform = mask(dataset, [down_wind], crop=True)
-        
-        # --- replace null values ---
-        up_wind_masked[up_wind_masked==np.nan] = 0
-        down_wind_masked[down_wind_masked==np.nan] = 0
-        
-        # --- aggregate ---
-        up_wind_val = self.agg_func(up_wind_masked)
-        down_wind_val = self.agg_func(down_wind_masked)
-        
-        return (job['plant_id_wri'], up_wind_val, down_wind_val)
-    
+                        # --- apply masks ---
+                        up_wind_masked, up_masked_transform = mask(dataset, [row['up_wind_mask']], crop=True)
+                        down_wind_masked, down_masked_transform = mask(dataset, [row['down_wind_mask']], crop=True)
+
+                        # --- replace null values ---
+                        up_wind_masked[up_wind_masked==np.nan] = 0
+                        down_wind_masked[down_wind_masked==np.nan] = 0
+                                
+                        # --- aggregate ---
+                        up_wind_val = self.agg_func(up_wind_masked)
+                        down_wind_val = self.agg_func(down_wind_masked)
+
+                        db_df.at[ix, 'up_wind_val'] = up_wind_val
+                        db_df.at[ix, 'down_wind_val'] = down_wind_val
+
+        return db_df[['plant_id_wri','datetime_utc','db','up_wind_val','down_wind_val']]
+
+
     def calculate(self, df):
+        """Components or self.worker that can be vectorize."""
 
         # --- Calculate Wind Speed ---
         df['wind_spd'] = np.vectorize(helper.calc_wind_speed)(df['u_component_of_wind_10m'], df['v_component_of_wind_10m'])
         df['wind_deg_from'] = np.vectorize(helper.calc_wind_deg)(df['u_component_of_wind_10m'], df['v_component_of_wind_10m'])
 
-        # --- for each date ---
-        date_dfs = []
-        for start_date in set(df['datetime_utc']):
+        result_db_dfs = []
+        # --- for each db ---
+        with cf.ProcessPoolExecutor(max_workers=min(config.WORKERS, len(self.s3_dbs))) as executor:
+
+            futures = [executor.submit(self.db_worker, df.copy(), db) for db in self.s3_dbs]
+
+            for f in cf.as_completed(futures):
+                result = f.result()
+                result_db_dfs.append(result)
+                log.info(f"........finished db {result['db'][0]}")
+
+        # --- concat db_dfs ---
+        long_df = pd.concat(result_db_dfs, axis='rows')
+        up_long_df = long_df[['plant_id_wri','datetime_utc','db','up_wind_val']]
+        down_long_df = long_df[['plant_id_wri','datetime_utc','db','down_wind_val']]
+
+        # --- make wide df ---
+        up_wide_df = pd.pivot_table(up_long_df, index=['plant_id_wri', 'datetime_utc'], columns='db', values='up_wind_val')
+        down_wide_df = pd.pivot_table(down_long_df, index=['plant_id_wri', 'datetime_utc'], columns='db', values='down_wind_val')
+        up_wide_df.columns = [f'up_wind_{c}' for c in up_wide_df.columns]
+        down_wide_df.columns = [f'down_wind_{c}' for c in down_wide_df.columns]
+        wide_df = pd.concat([up_wide_df, down_wide_df], axis='columns')
+        wide_df.reset_index(inplace=True)
+
+        # --- merge on df ---
+        df = df.merge(wide_df, on=['datetime_utc','plant_id_wri'], how='left')
+        return df
+
+class L3Optimizer(L3Loader):
+
+    def __init__(self, bayes_params={'angle':(1, 90), 'radius':(0.05, 0.6)}, n_samples=100,
+                 init_points=config.BAYES_INIT_POINTS, n_iter=config.BAYES_N_ITER):
+        
+        L3Loader.__init__(self)
+
+        self.col_map = {
+                  'COGT/OFFL/L2__NO2___/':'nox_lbs',
+                  'COGT/OFFL/L2__SO2___/':'so2_lbs',
+                  'COGT/OFFL/L2__HCHO__/':'co2_lbs',
+                  'COGT/OFFL/L2__CH4___/':'co2_lbs',
+                  'COGT/OFFL/L2__CO____/':'co2_lbs',
+                  'COGT/OFFL/L2__AER_AI/':'co2_lbs',
+
+        }
+        self.bayes_params = bayes_params
+        self.n_samples = n_samples
+        self.init_points = init_points
+        self.n_iter = n_iter
+
+    def _bayes_marginal_worker(self, sample, db, angle, radius):
+        """Wrapper around db_worker to return pearsonr correlation score from average."""
+        db_df = self.db_worker(db_df=sample, db=db, buffer_angle=angle, buffer_radius=radius)
+
+        # --- calculate marginal ---
+        db_df[f'marginal'] = db_df[f'down_wind_val'] - db_df[f'up_wind_val']
+
+        # --- merge onto sample ---
+        merged = sample.copy()
+        merged = merged.merge(db_df, on=['datetime_utc','plant_id_wri'], how='left')
+
+        # --- return pearson r score ---
+        true_col = self.col_map[db]
+        score = merged[true_col].corr(merged[f'marginal'], method='pearson')
+        return score
+
+    def bayes_db_worker(self, sample, db):
+        """Given a set of bayes params, calculate the emissions on row."""
+
+        log.info(f'....starting bayesian optimization for {db}')
+        func = functools.partial(L3Optimizer._bayes_marginal_worker, self=self, sample=sample, db=db)
+
+        bounds_transformer = SequentialDomainReductionTransformer()
+        optimizer = BayesianOptimization(
+                        f=func,
+                        pbounds=self.bayes_params,
+                        random_state=1,
+                        bounds_transformer=bounds_transformer,
+        )
+
+        # --- Optimize ---
+        optimizer.maximize(
+            init_points=self.init_points,
+            n_iter=self.n_iter,
+        )
+
+        return (db, optimizer.max)
+
+    def optimize(self, df):
+
+        log.info(f'starting bayesian optimization of buffer size using {self.n_samples}')
+        
+        # --- subset df into sample size ---
+        plant_ids = list(set(df['plant_id_wri']))
+        plant_ids = sorted(plant_ids)
+        random.Random(42).shuffle(plant_ids)
+        keep = plant_ids[0:self.n_samples]
+        sample = df.loc[df['plant_id_wri'].isin(keep)]
+
+        # --- Calculate Wind Speed ---
+        sample['wind_spd'] = np.vectorize(helper.calc_wind_speed)(sample['u_component_of_wind_10m'], sample['v_component_of_wind_10m'])
+        sample['wind_deg_from'] = np.vectorize(helper.calc_wind_deg)(sample['u_component_of_wind_10m'], sample['v_component_of_wind_10m'])
             
-            # --- for each db ---
+         # --- for each db ---
+        bayes_best_results = {}
+        if config.MULTIPROCESSING:
+            with cf.ProcessPoolExecutor(max_workers=min(config.WORKERS, len(self.s3_dbs))) as executor:
+
+                futures = [executor.submit(self.bayes_db_worker, sample.copy(), db) for db in self.s3_dbs]
+
+                for f in cf.as_completed(futures):
+                    db, best_params = f.result()
+                    bayes_best_results[db] = best_params
+                    log.info(f"........finished optimizing {db}")
+        else:
             for db in self.s3_dbs:
-            
-                # --- subset date ---
-                date_df = df.loc[df['datetime_utc'] == start_date]
-                
-                # --- load arrays ---
-                arrays, profile = self._loader(start_date, db)
-                
-                # --- aggregate into single array ---
-                dataset = self._aggregate(arrays, profile)
-                
-                # --- run df as jobs ---
-                log.info(f"....{len(df)} jobs queued for merging")
-                if config.MULTIPROCESSING:
-                    results = []
-                    
-                    start = time.time()
-                    completed = 0
-                    checkpoint = max(1, int(len(date_df) * self.checkpoint_freq))
-                    
-                    with cf.ThreadPoolExecutor(max_workers=config.THREADS) as executor: 
-                        
-                        # --- Submit to worker ---
-                        futures = [executor.submit(self._worker, job, dataset) for _, job in date_df.iterrows()]
-                        
-                        for f in cf.as_completed(futures):
-                            results.append(f.result())
-                            completed += 1
-                            
-                            if completed % checkpoint == 0:
-                                per_download = round((time.time() - start) / completed, 3)
-                                eta = round((len(date_df) - completed) * per_download / 3600, 3)
-                                log.info(f"........finished job {completed} / {len(date_df)}  ETA: {eta} hours")
-                else:
-                    results = [self._worker(job, dataset) for _, job in df.iterrows()]
-                        
-                # --- assemble results ---
-                results_df = pd.DataFrame(results, columns=['plant_id_wri',f'{db}_up_wind',f'{db}_down_wind'])
-                results_df['datetime_utc'] = start_date
-                
-                # --- merge results ---
-                date_df = df.merge(results_df, on=['plant_id_wri', 'datetime_utc'], how='left')
-                
-                # --- append to date_dfs ---
-                date_dfs.append(date_df)
-            
-            df = pd.concat(date_dfs, axis='rows')
-            
-            return df
+                bayes_best_results[db] = self.bayes_db_worker(sample.copy(), db)
+
+        # --- Save best params to pickle ---
+        with open(os.path.join('models', 'bayes_buffer_params.pkl'), 'wb') as handle:
+            pickle.dump(bayes_best_results, handle)
+
+        return self

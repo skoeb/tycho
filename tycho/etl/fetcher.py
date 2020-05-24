@@ -643,7 +643,7 @@ class EarthEngineFetcherLite():
 
     def _calc_geography(self, row):
         """Fetch weather and population data for a datetime and geometry."""
-        
+
         # --- get buffer as max_distance ---
         buffer = float(row['buffer'])
 
@@ -917,7 +917,7 @@ class S3Fetcher():
                         continue
                     
                     # --- filter file --- 
-                    if '.tif' not in local_path:
+                    if '.tif' not in local_path: #TODO check absolute to make sure ends with
                         continue
                     if 'PRODUCT_qa_value' in local_path:
                         continue

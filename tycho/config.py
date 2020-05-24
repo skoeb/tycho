@@ -5,6 +5,7 @@ Created on Sat Mar  7 08:48:27 2020
 """
 
 import os
+from pathlib import Path
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~ GENERAL SETTINGS ~~~~~~~~~~~~~
@@ -14,19 +15,21 @@ import os
 #   - most downloads are cached, so if you set a higher number, 
 #     and then a lower, you don't lose data.
 RUN_PRE_EE = False
+RUN_BAYES_OPT = True
 N_GENERATORS = None
+MAX_YEAR = 2019
 
 # --- Multiprocessing settings ---
 MULTIPROCESSING = True
-WORKERS = 6
+WORKERS = 12
 THREADS = 6 #ThreadPoolExecutor is failing for Earth Engine queries, so this is still using ProcessPool
 
 # --- Bool for detailed output ---
 VERBOSE = False
 
 # --- Frequency of observations (i.e. 'D' for daily, 'W', for weekly, 'M' for monthly, 'A' for annual) --- 
-TS_FREQUENCY = '1D'
-if TS_FREQUENCY in ['W','W-SUN']:
+TS_FREQUENCY = '1W'
+if TS_FREQUENCY in ['1W']:
     TS_DIVISOR = 52
 elif TS_FREQUENCY in ['MS']:
     TS_DIVISOR = 12
@@ -78,7 +81,7 @@ DEGREES_DISTANCE_MATCH = 0.005
 # ~~~~~~~~~~~~~~ L3 SETTINGS ~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-RAW_S3_DIR = os.path.join('HDD','tycho_raw')
+RAW_S3_DIR = os.path.join(str(Path.home()),'HDD','tycho_raw')
 
 S3_DBS = [
         'COGT/OFFL/L2__SO2___/',
@@ -118,8 +121,8 @@ CV_FOLDS = 3
 RANDOMSEARCH_ITER = 50
 
 # --- Params for Bayes training ---
-BAYES_N_ITER = 5
-BAYES_INIT_POINTS = 3
+BAYES_N_ITER = 20
+BAYES_INIT_POINTS = 100
 BAYES_ACQ = 'ucb'
 
 # --- Params for TPOT Training ---

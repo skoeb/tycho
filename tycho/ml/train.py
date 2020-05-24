@@ -69,8 +69,8 @@ def train(save_pickles=True):
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     pandas_pipe = Pipeline(steps=[
                             ('capacity', tycho.CapacityFeatures()),
-                            ('avg_values', tycho.ApplyAvgY(avg_table)),
                             ('date', tycho.DateFeatures()),
+                            ('avg_values', tycho.ApplyAvgY(avg_table)),
                             ('dropnull', tycho.DropNullColumns()),
                             ('onehot', tycho.OneHotEncodeWithThresh()),                 
     ])

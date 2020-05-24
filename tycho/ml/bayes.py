@@ -3,7 +3,7 @@ import copy
 import numpy as np
 from lightgbm import LGBMRegressor
 from sklearn.base import RegressorMixin
-from bayes_opt import BayesianOptimization
+from bayes_opt import BayesianOptimization, SequentialDomainReductionTransformer
 from sklearn.model_selection import cross_val_score
 
 import tycho.config as config
@@ -81,12 +81,13 @@ class BayesRegressor(RegressorMixin):
         self._cast_discrete()
         self._save_ints()
 
-        # --- run bayes ---
+        # --- Initialize Bayes model ---
+        bounds_transformer = SequentialDomainReductionTransformer()
         optimizer = BayesianOptimization(
-            f=self._cv_worker,
-            pbounds=self.pbounds,
-            random_state=1234,
-            verbose=2
+                        f=self._cv_worker,
+                        pbounds=self.pbounds,
+                        random_state=1,
+                        bounds_transformer=bounds_transformer,
         )
 
         optimizer.maximize(

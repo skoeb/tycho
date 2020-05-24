@@ -460,17 +460,17 @@ class L3Merger():
                  raw_s3_local_path=config.RAW_S3_DIR, 
                  checkpoint_freq=0.05,
                  if_already_exist='skip',
-                 resample_scale=1,
+                 resample_shape=(5143,10286),
                  downcast_dtype='uint8',
                  ):
         
         assert if_already_exist in ['skip', 'replace']
         
         self.s3_dbs = s3_dbs
-        self.raw_s3_local_path=raw_s3_local_path,
+        self.raw_s3_local_path = raw_s3_local_path
         self.checkpoint_freq = checkpoint_freq
         self.if_already_exist = if_already_exist
-        self.resample_scale = resample_scale
+        self.resample_shape = resample_shape
         self.downcast_dtype = downcast_dtype
         
         self.db_mosaics = {}
@@ -485,7 +485,7 @@ class L3Merger():
     
     def _worker(self, job):
         """Load rasters, merge, and save to disk for a given date and db."""
-        
+
         # --- unpack job ---
         sanitized_db, date = job
         
@@ -525,7 +525,8 @@ class L3Merger():
                     transform=mosaic_transform)
         
         # --- resample in memory ---
-        if self.resample_scale != 1:
+        if self.resample_shape != None:
+
             with MemoryFile() as memfile:
                 with memfile.open(**profile) as dataset:
                     dataset.write(mosaic)
@@ -535,8 +536,10 @@ class L3Merger():
             mosaic = dataset.read(
                 out_shape=(
                     dataset.count,
-                    int(dataset.height * self.resample_scale),
-                    int(dataset.width * self.resample_scale)
+                        self.resample_shape[0],
+                        self.resample_shape[1]
+                    # int(dataset.height * self.resample_scale),
+                    # int(dataset.width * self.resample_scale)
                 ),
                 resampling=Resampling.bilinear
             )
@@ -589,7 +592,7 @@ class L3Merger():
     def merge(self, df):
         """Main wrapper."""
 
-        dates = list(set(df['datetime_utc']))
+        dates = pd.date_range(df['datetime_utc'].min(), df['datetime_utc'].max())
         
         # --- load basemap ---
         self._load_basemap()

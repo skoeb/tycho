@@ -88,10 +88,11 @@ def etl():
     # --- Merge Remote Sensing (Earth Engine) Data onto df ---
     EarthEngineMerge = tycho.EarthEngineDataMergerLite()
     df = EarthEngineMerge.merge(df)
-
-    # --- fetch S3 data ---
-    # SentinelFetcher = tycho.S3Fetcher()
-    # SentinelFetcher.fetch(df)
+    
+    if config.FETCH_S3:
+        # --- fetch S3 data ---
+        SentinelFetcher = tycho.S3Fetcher()
+        SentinelFetcher.fetch(df)
 
     # --- merge S3 data together ---
     SentinelMerger = tycho.L3Merger()
@@ -104,17 +105,17 @@ def etl():
 
     # --- aggregate and merge onto df ---
     SentinelCalculator = tycho.L3Loader()
-    df = SentinelCalculator.serial_calculate(df)
+    df = SentinelCalculator.calculate(df)
     
     # --- Save to Pickle ---
     with open(os.path.join('processed','merged_df.pkl'), 'wb') as handle:
         pickle.dump(df, handle)
 
     # --- Generate Plots ---
-    tycho.plot_cems_emissions(df)
-    tycho.plot_corr_heatmap(df)
-    tycho.plot_eda_pair(df)
-    tycho.plot_map_plants(gppd)
+    # tycho.plot_cems_emissions(df)
+    # tycho.plot_corr_heatmap(df)
+    # tycho.plot_eda_pair(df)
+    # tycho.plot_map_plants(gppd)
 
 if __name__ == '__main__':
     etl()

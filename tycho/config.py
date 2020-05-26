@@ -15,7 +15,8 @@ from pathlib import Path
 #   - most downloads are cached, so if you set a higher number, 
 #     and then a lower, you don't lose data.
 RUN_PRE_EE = False
-RUN_BAYES_OPT = True
+FETCH_S3 = False
+RUN_BAYES_OPT = False
 N_GENERATORS = None
 MAX_YEAR = 2019
 
@@ -48,7 +49,7 @@ TRAIN_COUNTRIES = ['United States of America']
 PREDICT_COUNTRIES = ['Puerto Rico', 'Cuba', 'Dominican Republic', 'Jamaica', 'Colombia', 'Venezuela']
 
 PREDICT_START_DATE = '01-01-2019'
-PREDICT_END_DATE = '03-01-2020'
+PREDICT_END_DATE = '12-31-2019'
 
 CEMS_MEASUREMENT_FLAGS = ['Measured'] #blank for include everything
 

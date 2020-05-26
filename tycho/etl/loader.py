@@ -335,7 +335,7 @@ class GPPDLoader():
                     others = [c for c in list(set(self.gppd['country_long'])) if c[0:2] == country[0:2]]
                     log.error(f"{country} not in gppd, did you mean {others}?")
 
-            log.info('....subsetting gppd to include {countries}')
+            log.info(f'....subsetting gppd to include {self.countries}')
             self.gppd = self.gppd.loc[self.gppd['country_long'].isin(self.countries)]
         
         # --- Round lat lon ---
@@ -649,9 +649,9 @@ class L3Loader():
             except rasterio.errors.RasterioIOError:
                 # log.warning(f'Warining, could not find {f}') #TODO FIX THIS for 12-30 and 12-31 missing!
                 pass
-        
+
         return arrays, profile
-    
+
     def _sector_of_circle_on_row(self, row, direction):
         """Helper function to apply sector_of_circle on a dataframe."""
         if direction == 'up':
@@ -768,16 +768,21 @@ class L3Loader():
         df['wind_spd'] = np.vectorize(helper.calc_wind_speed)(df['u_component_of_wind_10m'], df['v_component_of_wind_10m'])
         df['wind_deg_from'] = np.vectorize(helper.calc_wind_deg)(df['u_component_of_wind_10m'], df['v_component_of_wind_10m'])
 
-        result_db_dfs = []
-        # --- for each db ---
-        with cf.ProcessPoolExecutor(max_workers=min(config.WORKERS, len(self.s3_dbs))) as executor:
+        if config.MULTIPROCESSING:
+            # --- for each db ---
+            result_db_dfs = []
+            with cf.ProcessPoolExecutor(max_workers=min(config.WORKERS, len(self.s3_dbs))) as executor:
 
-            futures = [executor.submit(self.db_worker, df.copy(), db) for db in self.s3_dbs]
+                futures = [executor.submit(self.db_worker, df.copy(), db) for db in self.s3_dbs]
 
-            for f in cf.as_completed(futures):
-                result = f.result()
-                result_db_dfs.append(result)
-                log.info(f"........finished db {result['db'][0]}")
+                for f in cf.as_completed(futures):
+                    result = f.result()
+                    result_db_dfs.append(result)
+                    log.info(f"........finished db {result['db'][0]}")
+        
+        else:
+            result_db_dfs = [self.db_worker(df.copy(), db) for db in self.s3_dbs]
+
 
         # --- concat db_dfs ---
         long_df = pd.concat(result_db_dfs, axis='rows')
@@ -880,7 +885,7 @@ class L3Optimizer(L3Loader):
                 for f in cf.as_completed(futures):
                     db, best_params = f.result()
                     bayes_best_results[db] = best_params
-                    log.info(f"........finished optimizing {db}")
+                    log.info(f"........finished optimizing {db}, best params: {best_params}")
         else:
             for db in self.s3_dbs:
                 bayes_best_results[db] = self.bayes_db_worker(sample.copy(), db)

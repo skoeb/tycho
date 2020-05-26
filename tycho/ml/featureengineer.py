@@ -210,4 +210,3 @@ class ApplyAvgY(TransformerMixin):
         Xt = self._merge(X)
         log.info(f'........finished ApplyAvgY, shape {Xt.shape}')
         return Xt
-        

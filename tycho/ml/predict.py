@@ -69,12 +69,22 @@ def predict(plot=True):
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~ Download Earth Engine Data ~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    EeFetch = tycho.EarthEngineFetcher()
-    EeFetch.fetch(df)
+    #--- Load Google Earth Engine Data (such as weather and population) using df for dates ---
+    EarthEngineFetch = tycho.EarthEngineFetcherLite()
+    EarthEngineFetch.fetch(df)
 
     # --- Merge Remote Sensing (Earth Engine) Data onto df ---
-    RemoteMerge = tycho.RemoteDataMerger()
-    merged = RemoteMerge.merge(df)
+    EarthEngineMerge = tycho.EarthEngineDataMergerLite()
+    df = EarthEngineMerge.merge(df)
+
+    if config.FETCH_S3:
+        # --- fetch S3 data ---
+        SentinelFetcher = tycho.S3Fetcher()
+        SentinelFetcher.fetch(df)
+
+    # --- aggregate and merge onto df ---
+    SentinelCalculator = tycho.L3Loader()
+    merged = SentinelCalculator.calculate(df)
 
     # --- Sanitize ---
     ColumnSanitize = tycho.ColumnSanitizer()
@@ -101,6 +111,14 @@ def predict(plot=True):
         
         log.info(f'........predicting for {y_col}')
         y_pred = model.predict(clean)
+
+        # --- Cap gross_load_mw by feasible capacity factor ---
+        if y_col == 'gross_load_mw':
+            estimated_cf = merged['estimated_generation_gwh'] / (merged['wri_capacity_mw'] * 365 * 24 / 1000)
+            max_feasible_cf = (estimated_cf * 1.25).clip(upper=0.95)
+            max_feasible_mwh = merged['wri_capacity_mw'] * max_feasible_cf * (365 / config.TS_DIVISOR) * 24
+            assert len(y_pred) == len(max_feasible_mwh)
+            y_pred = y_pred.clip(min=0, max=max_feasible_mwh)
         
         # --- Append prediction to dataframe ---
         pred_out_df[f'pred_{y_col}'] = y_pred

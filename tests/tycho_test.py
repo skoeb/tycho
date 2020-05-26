@@ -111,7 +111,7 @@ def test_earthengine(test_n=5):
 
     # --- fetch earth engine ---
     import pdb; pdb.set_trace()
-    fetcher = tycho.EarthEngineFetcher(read_cache=False, use_cache=False)
+    fetcher = tycho.EarthEngineFetcherLite(read_cache=False, use_cache=False)
     earthengine = fetcher.fetch(merged)
 
     # --- pivot onto index ---
@@ -136,3 +136,4 @@ def test_earthengine(test_n=5):
     # --- compare ---
     assert_frame_equal(earthengine_out, merged)
 
+def test 

@@ -231,7 +231,8 @@ def capacity_factor_df(df, switches):
     df = pd.read_json(df)
 
     # --- calc time diff ---
-    time_diff = abs((pd.Timestamp(switches['enddate']) - pd.Timestamp(switches['startdate'])).days) + 1
+    first_date, second_date = sorted(set(df['datetime_utc']))[0:2]
+    time_diff = abs(pd.Timestamp(first_date) - pd.Timestamp(second_date)).days
 
     # --- subset to gross_load_mw ---
     df = df.loc[df['variable'] == 'gross_load_mw']

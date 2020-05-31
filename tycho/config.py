@@ -17,7 +17,7 @@ from pathlib import Path
 RUN_PRE_EE = False
 FETCH_S3 = False
 RUN_BAYES_OPT = False
-N_GENERATORS = None
+N_GENERATORS = 200
 MAX_YEAR = 2019
 
 # --- Multiprocessing settings ---

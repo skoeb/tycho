@@ -10,10 +10,10 @@ import logging
 
 # --- Module Imports ---
 import tycho.config as config
-import tycho.helper as helper
 from tycho.etl import *
 from tycho.ml import *
 from tycho.output import *
+from tycho.helper import *
 
 # --- Initialize Logging ---
 logging.basicConfig(

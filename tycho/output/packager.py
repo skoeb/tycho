@@ -71,15 +71,19 @@ def country_to_continent(country_name):
     country_continent_name = pcc.convert_continent_code_to_continent_name(country_continent_code)
     return country_continent_name
 
-def package():
+def package(sql_db='tycho_production'):
     """Create the output dataframe for dashboard visualization. 
         long df with the following columns:
             - lat/lon, date, fuel, plant_id_wri, source (CEMS or Tycho Prediction)
             - variable (co2_lbs, nox_lbs, so2_lbs, gross_load_mw, emission factors)
             -values 
     """
-    # --- Load ground truth data ---
-    merged = pd.read_pickle(os.path.join('processed', 'merged_df.pkl'))
+    # --- establish SQLite Connection ---
+    SQL = tycho.SQLiteCon(sql_db)
+    SQL.make_con()
+
+    # --- Read in ETL Pickle ---
+    merged = SQL.sql_to_pandas('etl_L3')
 
     # --- Load predicted data ---
     predicted = pd.read_csv(os.path.join('processed','predictions','predictions.csv'))

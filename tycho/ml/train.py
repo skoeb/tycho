@@ -49,9 +49,14 @@ def mean_average_percent_error(y_true, y_pred):
 mape = mean_average_percent_error
 mae = mean_absolute_error
 
-def train(save_pickles=True):
+def train(save_pickles=True, sql_db='tycho_production'):
+
+    # --- establish SQLite Connection ---
+    SQL = tycho.SQLiteCon(sql_db)
+    SQL.make_con()
+
     # --- Read in ETL Pickle ---
-    merged = pd.read_pickle(os.path.join('processed', 'merged_df.pkl'))
+    merged = SQL.sql_to_pandas('etl_L3')
 
     # --- Sanitize ---
     ColumnSanitize = tycho.ColumnSanitizer()

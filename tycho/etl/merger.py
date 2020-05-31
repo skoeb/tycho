@@ -645,5 +645,5 @@ class L3Merger():
         else:
             for job in jobs:
                 self._worker(job)
-                
+
         return self

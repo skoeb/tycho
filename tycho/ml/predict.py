@@ -54,7 +54,12 @@ def apply_date_range_to_gppd(gppd,
     return df
 
 
-def predict(plot=True):
+def predict(sql_db='tycho_production', plot=True):
+
+    # --- establish SQLite Connection ---
+    SQL = tycho.SQLiteCon(sql_db)
+    SQL.make_con()
+
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~ Read GPPD ~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -125,7 +130,7 @@ def predict(plot=True):
 
     # --- Write out dfs ---
     log.info('....writing out predictions')
-    pred_out_df.to_csv(os.path.join('processed','predictions','predictions.csv'), index=False)
+    SQL.pandas_to_sql('predictions.csv')
     
     return pred_out_df
 

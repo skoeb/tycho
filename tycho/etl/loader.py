@@ -626,7 +626,7 @@ class L3Loader():
         dates_to_agg = []
         for i in range(delta.days):
             day = pd.Timestamp(start_date) + timedelta(days=i)
-            if day.year < config.MAX_YEAR + 1:
+            if day.year <= config.MAX_YEAR:
                 day = day.strftime('%Y-%m-%d')
                 dates_to_agg.append(day)
         
@@ -647,6 +647,7 @@ class L3Loader():
                 profile = srcr.profile
                 srcr.close()
             except rasterio.errors.RasterioIOError:
+                breakpoint()
                 # log.warning(f'Warining, could not find {f}') #TODO FIX THIS for 12-30 and 12-31 missing!
                 pass
 
@@ -729,7 +730,11 @@ class L3Loader():
         for date in set(db_df['datetime_utc']):
 
             # --- load arrays ---
-            arrays, profile = self._loader(date, db)
+            try:
+                arrays, profile = self._loader(date, db)
+            except Exception as e:
+                log.warning(f'Failed on self._loader for {date}')
+                continue
 
             # --- aggregate to timeslice size (mosaic) ---
             profile['dtype'] = 'uint32'
@@ -892,7 +897,8 @@ class L3Optimizer(L3Loader):
                 bayes_best_results[db] = self.bayes_db_worker(sample.copy(), db)
 
         # --- Save best params to pickle ---
-        with open(os.path.join('models', 'bayes_buffer_params.pkl'), 'wb') as handle:
-            pickle.dump(bayes_best_results, handle)
+        if self.n_samples > 10: #ignore if testing
+            with open(os.path.join('models', 'bayes_buffer_params.pkl'), 'wb') as handle:
+                pickle.dump(bayes_best_results, handle)
 
         return self

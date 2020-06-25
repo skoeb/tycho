@@ -14,10 +14,10 @@ from pathlib import Path
 # --- Number of generators for training set ---
 #   - most downloads are cached, so if you set a higher number, 
 #     and then a lower, you don't lose data.
-RUN_PRE_EE = False
-FETCH_S3 = False
-RUN_BAYES_OPT = False
-N_GENERATORS = 200
+RUN_PRE_EE = True
+FETCH_S3 = True
+RUN_BAYES_OPT = True
+N_GENERATORS = None
 MAX_YEAR = 2019
 
 # --- Multiprocessing settings ---
@@ -46,7 +46,7 @@ else:
     raise NotImplementedError(f'Please write a wrapper for {TS_FREQUENCY}!')
 
 TRAIN_COUNTRIES = ['United States of America']
-PREDICT_COUNTRIES = ['Puerto Rico', 'Cuba', 'Dominican Republic', 'Jamaica', 'Colombia', 'Venezuela']
+PREDICT_COUNTRIES = None
 
 PREDICT_START_DATE = '01-01-2019'
 PREDICT_END_DATE = '12-31-2019'
@@ -122,7 +122,7 @@ CV_FOLDS = 3
 RANDOMSEARCH_ITER = 50
 
 # --- Params for Bayes training ---
-BAYES_N_ITER = 20
+BAYES_N_ITER = 50
 BAYES_INIT_POINTS = 100
 BAYES_ACQ = 'ucb'
 

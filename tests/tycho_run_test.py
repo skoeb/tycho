@@ -15,22 +15,22 @@ def test_etl():
     # todo save db as test
     tycho.etl(sql_db='tycho_test')
 
-def test_train():
+# def test_train():
 
-    # todo don't save model
-    tycho.train(sql_db='tycho_test')
+#     # todo don't save model
+#     tycho.train(sql_db='tycho_test')
 
-def test_predict():
+# def test_predict():
 
-    config.PREDICT_COUNTRIES = ['Canada']
+#     config.PREDICT_COUNTRIES = ['Canada']
 
-    # todo save db as test
-    tycho.predict(sql_db='tycho_test')
-
-
-def test_plot():
-    tycho.plot(sql_db='tycho_test')
+#     # todo save db as test
+#     tycho.predict(sql_db='tycho_test')
 
 
-def test_package():
-    tycho.package(sql_db='tycho_test')
+# def test_plot():
+#     tycho.plot(sql_db='tycho_test')
+
+
+# def test_package():
+#     tycho.package(sql_db='tycho_test')

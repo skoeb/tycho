@@ -2,7 +2,10 @@
 *.pyc
 *.tiff
 *.tif
+<<<<<<< HEAD
 *agg1W.pkl
+=======
+>>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
 
 data/s3/*.tiff
 data/CEMS/csvs/*.zip

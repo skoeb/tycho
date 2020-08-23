@@ -29,6 +29,40 @@ from shapely import wkt
 import tycho.config
 import tycho.helper
 
+class SQLiteCon():
+
+    def __init__(self, db_path):
+        self.db_path = db_path
+
+    def make_con(self):
+        self.con = sqlite3.connect(os.path.join('data','sqlite', self.db_path))
+        return self
+    
+    def pandas_to_sql(self, df, table):
+
+        _df = df.copy()
+
+        # --- cast geometry as str ---
+        if 'geometry' in df.columns:
+           _df['geometry'] = _df['geometry'].astype('str')
+
+        _df.to_sql(table, self.con, if_exists='replace', index=False)
+        return self
+    
+    def sql_to_pandas(self, table):
+
+        df = pd.read_sql(f"select * from {table}", self.con)
+
+        if 'geometry' in df.columns:
+            df['geometry'] = df['geometry'].apply(wkt.loads)
+            df = gpd.GeoDataFrame(df, geometry='geometry')
+        
+        if 'datetime_utc' in df.columns:
+            df['datetime_utc'] = pd.to_datetime(df['datetime_utc'])
+
+        return df
+
+
 def memory_downcaster(df):
 
     assert isinstance(df, pd.DataFrame) | isinstance(df, pd.Series)

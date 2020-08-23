@@ -1,4 +1,8 @@
 # --- Python Batteries Included---
+<<<<<<< HEAD
+=======
+import sqlite3
+>>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
 import os
 import ftplib
 import concurrent.futures as cf

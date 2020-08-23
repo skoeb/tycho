@@ -5,6 +5,10 @@ Created on Sat Mar  7 08:48:27 2020
 """
 
 # --- Python Batteries Included---
+<<<<<<< HEAD
+=======
+import sqlite3
+>>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
 import os
 import ftplib
 import concurrent.futures as cf
@@ -29,10 +33,17 @@ import tycho.config as config
 import logging
 log = logging.getLogger("tycho")
 
+<<<<<<< HEAD
 def etl():
 
     # --- establish SQL Connection ---
     SQL = tycho.PostgreSQLCon()
+=======
+def etl(sql_db='tycho_production'):
+
+    # --- establish SQLite Connection ---
+    SQL = tycho.SQLiteCon(sql_db)
+>>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
     SQL.make_con()
     
     if config.RUN_PRE_EE:
@@ -60,7 +71,11 @@ def etl():
         TrainingMerge.merge()
         df = TrainingMerge.df
         
+<<<<<<< HEAD
         # --- Output to SQL ---
+=======
+        # --- Output to SQLite ---
+>>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
         SQL.pandas_to_sql(df, 'etl_pre_L3')
     
     else:

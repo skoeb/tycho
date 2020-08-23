@@ -40,8 +40,13 @@ def test_wind_deg():
 #TODO: test WRI distance matching? 
 
 def test_duplicates(ts_frequency=TS_FREQUENCY):
+<<<<<<< HEAD
     # --- establish SQL Connection ---
     SQL = tycho.PostgreSQLCon(schema='test')
+=======
+    # --- establish SQLite Connection ---
+    SQL = tycho.SQLiteCon('tycho_test')
+>>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
     SQL.make_con()
 
     # --- Read in ETL Pickle ---
@@ -60,8 +65,13 @@ def test_duplicates(ts_frequency=TS_FREQUENCY):
 def test_CEMS(test_n=10):
     """Compare merged dataframe CEMS to the raw data."""
     
+<<<<<<< HEAD
     # --- establish SQL Connection ---
     SQL = tycho.PostgreSQLCon(schema='test')
+=======
+    # --- establish SQLite Connection ---
+    SQL = tycho.SQLiteCon('tycho_test')
+>>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
     SQL.make_con()
 
     # --- Read in ETL Pickle ---
@@ -108,8 +118,13 @@ def test_CEMS(test_n=10):
 def test_earthengine(test_n=5):
     """Compare merged dataframe earth engine to the raw data."""
 
+<<<<<<< HEAD
     # --- establish SQL Connection ---
     SQL = tycho.PostgreSQLCon(schema='test')
+=======
+    # --- establish SQLite Connection ---
+    SQL = tycho.SQLiteCon('tycho_test')
+>>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
     SQL.make_con()
 
     # --- Read in ETL Pickle ---

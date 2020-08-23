@@ -1,6 +1,5 @@
 
 # --- Python Batteries Included---
-import sqlite3
 import os
 import ftplib
 import concurrent.futures as cf
@@ -487,7 +486,7 @@ def plot(sql_db='tycho_production'):
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~ Read SQL ~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    SQL = tycho.SQLiteCon(sql_db)
+    SQL = tycho.PostgreSQLCon()
     SQL.make_con()
 
     # --- Read in ETL ---

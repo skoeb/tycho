@@ -1,6 +1,5 @@
 
 # --- Python Batteries Included---
-import sqlite3
 import os
 import ftplib
 import concurrent.futures as cf
@@ -54,10 +53,10 @@ def apply_date_range_to_gppd(gppd,
     return df
 
 
-def predict(sql_db='tycho_production', plot=True):
+def predict(plot=True):
 
-    # --- establish SQLite Connection ---
-    SQL = tycho.SQLiteCon(sql_db)
+    # --- establish SQL Connection ---
+    SQL = tycho.PostgreSQLCon()
     SQL.make_con()
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -130,7 +129,7 @@ def predict(sql_db='tycho_production', plot=True):
 
     # --- Write out dfs ---
     log.info('....writing out predictions')
-    SQL.pandas_to_sql('predictions.csv')
+    SQL.pandas_to_sql(pred_out_df, 'predictions')
     
     return pred_out_df
 

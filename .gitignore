@@ -2,6 +2,7 @@
 *.pyc
 *.tiff
 *.tif
+*agg1W.pkl
 
 data/s3/*.tiff
 data/CEMS/csvs/*.zip

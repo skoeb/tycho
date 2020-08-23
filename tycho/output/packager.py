@@ -6,7 +6,6 @@ Used for dashboard.
 """
 
 # --- Python Batteries Included---
-import sqlite3
 import os
 import ftplib
 import concurrent.futures as cf
@@ -71,15 +70,15 @@ def country_to_continent(country_name):
     country_continent_name = pcc.convert_continent_code_to_continent_name(country_continent_code)
     return country_continent_name
 
-def package(sql_db='tycho_production'):
+def package():
     """Create the output dataframe for dashboard visualization. 
         long df with the following columns:
             - lat/lon, date, fuel, plant_id_wri, source (CEMS or Tycho Prediction)
             - variable (co2_lbs, nox_lbs, so2_lbs, gross_load_mw, emission factors)
             -values 
     """
-    # --- establish SQLite Connection ---
-    SQL = tycho.SQLiteCon(sql_db)
+    # --- establish SQL Connection ---
+    SQL = tycho.PostgreSQLCon()
     SQL.make_con()
 
     # --- Read in ETL Pickle ---

@@ -19,10 +19,7 @@ FETCH_S3 = True
 RUN_BAYES_OPT = True
 N_GENERATORS = None
 MAX_YEAR = 2019
-<<<<<<< HEAD
 SCHEMA = 'production'
-=======
->>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
 
 # --- Multiprocessing settings ---
 MULTIPROCESSING = True
@@ -50,20 +47,12 @@ else:
     raise NotImplementedError(f'Please write a wrapper for {TS_FREQUENCY}!')
 
 TRAIN_COUNTRIES = ['United States of America']
-<<<<<<< HEAD
 PREDICT_COUNTRIES = ['WORLD'] #['Colombia', 'Venezuela', 'Costa Rica', 'Guatemala', 'Jamaica', 'Puerto Rico']
-=======
-PREDICT_COUNTRIES = None
->>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
 
 PREDICT_START_DATE = '01-01-2019'
 PREDICT_END_DATE = '12-31-2019'
 
-<<<<<<< HEAD
 CEMS_MEASUREMENT_FLAGS = [] #blank for include everything
-=======
-CEMS_MEASUREMENT_FLAGS = ['Measured'] #blank for include everything
->>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
 
 FETCH_SENTINEL_FROM = 'S3'
 

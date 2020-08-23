@@ -4,10 +4,6 @@ Created on Sat Mar  7 08:48:27 2020
 @author: SamKoebrich
 """
 # --- Python Batteries Included---
-<<<<<<< HEAD
-=======
-import sqlite3
->>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
 import os
 import ftplib
 import concurrent.futures as cf
@@ -742,10 +738,6 @@ class EarthEngineFetcherLite():
     def _run_jobs(self, jobs_df):
         log.info(f'....starting earth engine jobs')
         results = []
-<<<<<<< HEAD
-=======
-        jobs_df.to_pickle('jobs_df.pkl')
->>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
         if config.MULTIPROCESSING:
             checkpoint = max(1, int(len(jobs_df) * 0.05))
             with cf.ProcessPoolExecutor(max_workers=config.THREADS) as executor: #TODO: Not sure why thread pool is dumping core here? 

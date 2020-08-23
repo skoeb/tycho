@@ -1,9 +1,5 @@
 
 # --- Python Batteries Included---
-<<<<<<< HEAD
-=======
-import sqlite3
->>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
 import os
 import ftplib
 import concurrent.futures as cf
@@ -52,17 +48,10 @@ def mean_average_percent_error(y_true, y_pred):
 mape = mean_average_percent_error
 mae = mean_absolute_error
 
-<<<<<<< HEAD
 def train(save_pickles=True):
 
     # --- establish SQL Connection ---
     SQL = tycho.PostgreSQLCon()
-=======
-def train(save_pickles=True, sql_db='tycho_production'):
-
-    # --- establish SQLite Connection ---
-    SQL = tycho.SQLiteCon(sql_db)
->>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
     SQL.make_con()
 
     # --- Read in ETL Pickle ---

@@ -4,13 +4,8 @@ Created on Sat Mar  7 08:48:27 2020
 @author: SamKoebrich
 """
 # --- Python Batteries Included---
-<<<<<<< HEAD
 import os
 import sqlite3
-=======
-import sqlite3
-import os
->>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
 import ftplib
 import concurrent.futures as cf
 import time
@@ -328,11 +323,7 @@ class GPPDLoader():
         self.gppd.loc[self.gppd['gppd_idnr'].isin(pr_ids), 'country'] = 'PRI'
 
         # --- Subset to countries ---
-<<<<<<< HEAD
         if 'WORLD' in self.countries: #all countries!
-=======
-        if None in self.countries: #all countries!
->>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
             log.info('....including all countries in GPPD!')
             pass
 

@@ -14,10 +14,7 @@ from tycho.etl import *
 from tycho.ml import *
 from tycho.output import *
 from tycho.helper import *
-<<<<<<< HEAD
 from tycho.database import *
-=======
->>>>>>> 0f8b3b2bdb5120308a9454144010407128c5df28
 
 # --- Initialize Logging ---
 logging.basicConfig(

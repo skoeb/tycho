@@ -6,7 +6,6 @@ Used for dashboard.
 """
 
 # --- Python Batteries Included---
-import sqlite3
 import os
 import ftplib
 import concurrent.futures as cf
@@ -78,8 +77,12 @@ def package():
             - variable (co2_lbs, nox_lbs, so2_lbs, gross_load_mw, emission factors)
             -values 
     """
-    # --- Load ground truth data ---
-    merged = pd.read_pickle(os.path.join('processed', 'merged_df.pkl'))
+    # --- establish SQL Connection ---
+    SQL = tycho.PostgreSQLCon()
+    SQL.make_con()
+
+    # --- Read in ETL Pickle ---
+    merged = SQL.sql_to_pandas('etl_L3')
 
     # --- Load predicted data ---
     predicted = pd.read_csv(os.path.join('processed','predictions','predictions.csv'))

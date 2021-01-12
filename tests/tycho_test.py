@@ -16,6 +16,7 @@ from pandas._testing import assert_frame_equal
 import tycho
 from tycho.config import *
 
+
 def test_wind_spd():
     df = pd.DataFrame({
         'u':[0,0,1],
@@ -39,9 +40,12 @@ def test_wind_deg():
 #TODO: test WRI distance matching? 
 
 def test_duplicates(ts_frequency=TS_FREQUENCY):
-    # --- load merged df ---
-    merged_path = os.path.join('processed', 'merged_df.pkl')
-    merged = pd.read_pickle(merged_path)
+    # --- establish SQL Connection ---
+    SQL = tycho.PostgreSQLCon(schema='test')
+    SQL.make_con()
+
+    # --- Read in ETL Pickle ---
+    merged = SQL.sql_to_pandas('etl_L3')
 
     # --- count samples for each plant_id_wri ---
     counts = merged.groupby('plant_id_wri', as_index=False)['datetime_utc'].count()
@@ -56,9 +60,12 @@ def test_duplicates(ts_frequency=TS_FREQUENCY):
 def test_CEMS(test_n=10):
     """Compare merged dataframe CEMS to the raw data."""
     
-    # --- load merged df ---
-    merged_path = os.path.join('processed','merged_df.pkl')
-    merged = pd.read_pickle(merged_path)
+    # --- establish SQL Connection ---
+    SQL = tycho.PostgreSQLCon(schema='test')
+    SQL.make_con()
+
+    # --- Read in ETL Pickle ---
+    merged = SQL.sql_to_pandas('etl_L3')
 
     # --- subset to n ---
     keep_plants = merged.sample(frac=1).iloc[0:test_n]['plant_id_eia'].tolist()
@@ -101,16 +108,18 @@ def test_CEMS(test_n=10):
 def test_earthengine(test_n=5):
     """Compare merged dataframe earth engine to the raw data."""
 
-    # --- load merged df ---
-    merged_path = os.path.join('processed', 'merged_df.pkl')
-    merged = pd.read_pickle(merged_path)
+    # --- establish SQL Connection ---
+    SQL = tycho.PostgreSQLCon(schema='test')
+    SQL.make_con()
+
+    # --- Read in ETL Pickle ---
+    merged = SQL.sql_to_pandas('etl_L3')
 
     # --- subset to n ---
     keep_plants = merged.sample(frac=1).iloc[0:test_n]['plant_id_eia'].tolist()
     merged = merged.loc[merged['plant_id_eia'].isin(keep_plants)]
 
     # --- fetch earth engine ---
-    import pdb; pdb.set_trace()
     fetcher = tycho.EarthEngineFetcherLite(read_cache=False, use_cache=False)
     earthengine = fetcher.fetch(merged)
 
@@ -135,5 +144,3 @@ def test_earthengine(test_n=5):
 
     # --- compare ---
     assert_frame_equal(earthengine_out, merged)
-
-def test 

@@ -4,7 +4,6 @@ Created on Sat Mar  7 08:48:27 2020
 @author: SamKoebrich
 """
 # --- Python Batteries Included---
-import sqlite3
 import os
 import ftplib
 import concurrent.futures as cf
@@ -645,5 +644,5 @@ class L3Merger():
         else:
             for job in jobs:
                 self._worker(job)
-                
+
         return self

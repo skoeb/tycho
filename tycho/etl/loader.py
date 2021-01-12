@@ -4,8 +4,8 @@ Created on Sat Mar  7 08:48:27 2020
 @author: SamKoebrich
 """
 # --- Python Batteries Included---
-import sqlite3
 import os
+import sqlite3
 import ftplib
 import concurrent.futures as cf
 import time
@@ -88,7 +88,7 @@ class CEMSLoader():
     """
     def __init__(self, ts_frequency=config.TS_FREQUENCY,
                  years=[2019], clean_on_load=True,
-                 use_pickle=True, save_pickle=True,
+                 use_pickle=True, SQL=None,
                  measurement_flags=config.CEMS_MEASUREMENT_FLAGS):
         
         log.info('\n')
@@ -102,7 +102,7 @@ class CEMSLoader():
         years_clean = [str(i) for i in years]
         years_clean = '-'.join(years_clean) #save as seperate caches
         self.pkl_path = os.path.join('data','CEMS','processed',f"cems_{ts_frequency}_{years_clean}.pkl")
-        self.save_pickle = save_pickle
+        self.SQL = SQL
         self.measurement_flags = measurement_flags
 
         self.cems = None
@@ -234,8 +234,8 @@ class CEMSLoader():
                 self.cems.to_pickle(self.pkl_path, protocol=4)
                 # --- Out ---
         
-        if self.save_pickle:
-            self.cems.to_pickle(os.path.join('processed','cems_clean.pkl'))
+        if self.SQL is not None:
+            self.SQL.pandas_to_sql(self.cems, 'cems_merged')
                 
         return self
 
@@ -272,14 +272,14 @@ class GPPDLoader():
     def __init__(self,
                  round_coords_at=3,
                  countries=config.TRAIN_COUNTRIES,
-                 save_pickle=True):
+                 SQL=None):
 
         log.info('\n')
         log.info('Initializing GPPDLoader')
         
         self.round_coords_at = round_coords_at #.01 degrees = 1 km
         self.countries = set(countries)
-        self.save_pickle = save_pickle
+        self.SQL = SQL
 
         
     def _load_csv(self):
@@ -323,7 +323,7 @@ class GPPDLoader():
         self.gppd.loc[self.gppd['gppd_idnr'].isin(pr_ids), 'country'] = 'PRI'
 
         # --- Subset to countries ---
-        if None in self.countries: #all countries!
+        if 'WORLD' in self.countries: #all countries!
             log.info('....including all countries in GPPD!')
             pass
 
@@ -386,8 +386,8 @@ class GPPDLoader():
         self._make_geopandas()
 
         # --- Out ---
-        if self.save_pickle:
-            self.gppd.to_pickle(os.path.join('processed','gppd_clean.pkl'))
+        if self.SQL is not None:
+            self.SQL.pandas_to_sql(self.gppd, 'gppd_merged')
         
         return self
 
@@ -431,14 +431,14 @@ class PUDLLoader():
 
     def __init__(self, years=[2018],
                  round_coords_at=3,
-                 save_pickle=True):
+                 SQL=None):
         
         log.info('\n')
         log.info('Initializing PUDLLoader')
 
         self.years = years
         self.round_coords_at = round_coords_at
-        self.save_pickle = save_pickle
+        self.SQL = SQL
 
         self.db_path = os.path.join('data','pudl-work','sqlite','pudl.sqlite')
     
@@ -588,8 +588,8 @@ class PUDLLoader():
         self._make_geopandas()
 
         # --- Out ---
-        if self.save_pickle:
-            self.eightsixty.to_pickle(os.path.join('processed','eightsixty_clean.pkl'))
+        if self.SQL is not None:
+            self.SQL.pandas_to_sql(self.eightsixty, 'eightsixty_merged')
         
         return self
 
@@ -626,7 +626,7 @@ class L3Loader():
         dates_to_agg = []
         for i in range(delta.days):
             day = pd.Timestamp(start_date) + timedelta(days=i)
-            if day.year < config.MAX_YEAR + 1:
+            if day.year <= config.MAX_YEAR:
                 day = day.strftime('%Y-%m-%d')
                 dates_to_agg.append(day)
         
@@ -647,6 +647,7 @@ class L3Loader():
                 profile = srcr.profile
                 srcr.close()
             except rasterio.errors.RasterioIOError:
+                breakpoint()
                 # log.warning(f'Warining, could not find {f}') #TODO FIX THIS for 12-30 and 12-31 missing!
                 pass
 
@@ -729,7 +730,11 @@ class L3Loader():
         for date in set(db_df['datetime_utc']):
 
             # --- load arrays ---
-            arrays, profile = self._loader(date, db)
+            try:
+                arrays, profile = self._loader(date, db)
+            except Exception as e:
+                log.warning(f'Failed on self._loader for {date}')
+                continue
 
             # --- aggregate to timeslice size (mosaic) ---
             profile['dtype'] = 'uint32'
@@ -799,6 +804,7 @@ class L3Loader():
 
         # --- merge on df ---
         df = df.merge(wide_df, on=['datetime_utc','plant_id_wri'], how='left')
+
         return df
 
 class L3Optimizer(L3Loader):
@@ -891,7 +897,8 @@ class L3Optimizer(L3Loader):
                 bayes_best_results[db] = self.bayes_db_worker(sample.copy(), db)
 
         # --- Save best params to pickle ---
-        with open(os.path.join('models', 'bayes_buffer_params.pkl'), 'wb') as handle:
-            pickle.dump(bayes_best_results, handle)
+        if self.n_samples > 10: #ignore if testing
+            with open(os.path.join('models', 'bayes_buffer_params.pkl'), 'wb') as handle:
+                pickle.dump(bayes_best_results, handle)
 
         return self

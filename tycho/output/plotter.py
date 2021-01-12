@@ -1,6 +1,5 @@
 
 # --- Python Batteries Included---
-import sqlite3
 import os
 import ftplib
 import concurrent.futures as cf
@@ -433,9 +432,6 @@ def plot_shap(merged):
     # --- Setup Shap ---
     shap.initjs()
 
-    # --- Read in ETL Pickle ---
-    merged = pd.read_pickle(os.path.join('processed', 'merged_df.pkl'))
-
     # --- Sanitize ---
     ColumnSanitize = tycho.ColumnSanitizer()
     clean = ColumnSanitize.sanitize(merged)
@@ -486,15 +482,16 @@ def plot_shap(merged):
         image_path = os.path.join('images', f"{y_col}_shap.png")
         plt.savefig(image_path)
 
-def plot(merged=None, gppd=None):
+def plot(sql_db='tycho_production'):
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # ~~~~~~~~~~~~ Read Pickles ~~~~~~~~~~~~~~~~
+    # ~~~~~~~~~~~~~ Read SQL ~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    if isinstance(merged, type(None)):
-        merged = pd.read_pickle(os.path.join('processed', 'merged_df.pkl'))
-    
-    if isinstance(gppd, type(None)):
-     gppd = pd.read_pickle(os.path.join('processed','gppd_clean.pkl'))
+    SQL = tycho.PostgreSQLCon()
+    SQL.make_con()
+
+    # --- Read in ETL ---
+    merged = SQL.sql_to_pandas('etl_L3')
+    gppd = SQL.sql_to_pandas('gppd_merged')
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~ Plot ~~~~~~~~~~~~~~~~~~~~

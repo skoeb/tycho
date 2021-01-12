@@ -1,5 +1,8 @@
 import tycho
-from tycho.config as config
+import tycho.config as config
+
+import logging
+log = logging.getLogger("tycho")
 
 def test_etl():
     config.N_GENERATORS = 10
@@ -10,24 +13,24 @@ def test_etl():
     config.BAYES_INIT_POINTS = 1
 
     # todo save db as test
-    tycho.etl()
+    tycho.etl(sql_db='tycho_test')
 
-def test_train():
+# def test_train():
 
-    # todo don't save model
-    tycho.train()
+#     # todo don't save model
+#     tycho.train(sql_db='tycho_test')
 
-def test_predict():
+# def test_predict():
 
-    config.PREDICT_COUNTRIES = ['Canada']
+#     config.PREDICT_COUNTRIES = ['Canada']
 
-    # todo save db as test
-    tycho.predict()
-
-
-def test_plot():
-    tycho.plot()
+#     # todo save db as test
+#     tycho.predict(sql_db='tycho_test')
 
 
-def test_plot():
-    tycho.package()
+# def test_plot():
+#     tycho.plot(sql_db='tycho_test')
+
+
+# def test_package():
+#     tycho.package(sql_db='tycho_test')

@@ -1,6 +1,5 @@
 
 # --- Python Batteries Included---
-import sqlite3
 import os
 import ftplib
 import concurrent.futures as cf
@@ -50,8 +49,13 @@ mape = mean_average_percent_error
 mae = mean_absolute_error
 
 def train(save_pickles=True):
+
+    # --- establish SQL Connection ---
+    SQL = tycho.PostgreSQLCon()
+    SQL.make_con()
+
     # --- Read in ETL Pickle ---
-    merged = pd.read_pickle(os.path.join('processed', 'merged_df.pkl'))
+    merged = SQL.sql_to_pandas('etl_L3')
 
     # --- Sanitize ---
     ColumnSanitize = tycho.ColumnSanitizer()

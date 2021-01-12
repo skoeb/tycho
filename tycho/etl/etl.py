@@ -5,7 +5,6 @@ Created on Sat Mar  7 08:48:27 2020
 """
 
 # --- Python Batteries Included---
-import sqlite3
 import os
 import ftplib
 import concurrent.futures as cf
@@ -31,6 +30,10 @@ import logging
 log = logging.getLogger("tycho")
 
 def etl():
+
+    # --- establish SQL Connection ---
+    SQL = tycho.PostgreSQLCon()
+    SQL.make_con()
     
     if config.RUN_PRE_EE:
         # --- Fetch EPA CEMS data if not present in 'data/CEMS/csvs' (as zip files) ---
@@ -38,17 +41,17 @@ def etl():
         CemsFetch.fetch()
 
         # --- Load EIA 860/923 data from PUDL ---
-        PudlLoad = tycho.PUDLLoader()
+        PudlLoad = tycho.PUDLLoader(SQL=SQL)
         PudlLoad.load()
         eightsixty = PudlLoad.eightsixty
 
         # --- load CEMS data from pickle, or construct dataframe from csvs ---
-        CemsLoad = tycho.CEMSLoader()
+        CemsLoad = tycho.CEMSLoader(SQL=SQL)
         CemsLoad.load()
         cems = CemsLoad.cems
 
         # --- Load WRI Global Power Plant Database data from csv ---
-        GppdLoad = tycho.GPPDLoader() 
+        GppdLoad = tycho.GPPDLoader(SQL=SQL) 
         GppdLoad.load()
         gppd = GppdLoad.gppd
         
@@ -57,11 +60,11 @@ def etl():
         TrainingMerge.merge()
         df = TrainingMerge.df
         
-        # --- Output pickle ---
-        df.to_pickle(os.path.join('processed','pre_ee.pkl'), protocol=4)
+        # --- Output to SQL ---
+        SQL.pandas_to_sql(df, 'etl_pre_L3')
     
     else:
-        df = pd.read_pickle(os.path.join('processed','pre_ee.pkl'))
+        df = SQL.sql_to_pandas('etl_pre_L3')
         df = df.loc[df['datetime_utc'] < pd.datetime(config.MAX_YEAR+1 ,1, 1)]
 
     # --- Only keep n_generators worth of plants ---
@@ -107,15 +110,8 @@ def etl():
     SentinelCalculator = tycho.L3Loader()
     df = SentinelCalculator.calculate(df)
     
-    # --- Save to Pickle ---
-    with open(os.path.join('processed','merged_df.pkl'), 'wb') as handle:
-        pickle.dump(df, handle)
-
-    # --- Generate Plots ---
-    # tycho.plot_cems_emissions(df)
-    # tycho.plot_corr_heatmap(df)
-    # tycho.plot_eda_pair(df)
-    # tycho.plot_map_plants(gppd)
+    # --- Save to SQL ---
+    SQL.pandas_to_sql(df, 'etl_L3')
 
 if __name__ == '__main__':
     etl()
